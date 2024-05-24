@@ -17,44 +17,45 @@
 
 namespace bustub {
 
-size_t LRUKNode::CurrentTimeStamp = 0;
+size_t LRUKNode::current_time_stamp = 0;
 
-LRUKNode::LRUKNode(size_t k, frame_id_t fid) : k_(k), fid_(fid) { record_access(); }
+LRUKNode::LRUKNode(size_t k, frame_id_t fid) : k_(k), fid_(fid) { RecordAccess(); }
 
-void LRUKNode::record_access() {
-  auto current_timestamp_ = static_cast<size_t>(
+void LRUKNode::RecordAccess() {
+  auto current_timestamp = static_cast<size_t>(
       std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::system_clock::now().time_since_epoch())
           .count());
 
-  history_.push_front(current_timestamp_);
+  history_.push_front(current_timestamp);
   if (history_.size() > k_) {
     history_.pop_back();
   }
 }
 
-bool LRUKNode::operator<(const LRUKNode &other) const {
+auto LRUKNode::operator<(const LRUKNode &other) const -> bool {
   if (!is_evictable_) {
     return true;
-  } else if (!other.is_evictable_) {
+  }
+  if (!other.is_evictable_) {
     return false;
   }
 
-  auto backward_k_distance_this = backward_k_distance();
-  auto backward_k_distance_other = other.backward_k_distance();
+  auto backward_k_distance_this = BackwardDistance();
+  auto backward_k_distance_other = other.BackwardDistance();
   if (backward_k_distance_this == backward_k_distance_other) {
-    BUSTUB_ASSERT(history_.size() > 0 && other.history_.size() > 0, "History size should be greater than 0");
-    return history_.front() > other.history_.front();
+    BUSTUB_ASSERT(!history_.empty() && !other.history_.empty(), "History size should be greater than 0");
+    return history_.back() > other.history_.back();
   }
 
   return backward_k_distance_this < backward_k_distance_other;
 }
 
-size_t LRUKNode::backward_k_distance() const {
+auto LRUKNode::BackwardDistance() const -> size_t {
   if (history_.size() < k_) {
     return std::numeric_limits<size_t>::max();
   }
 
-  return CurrentTimeStamp - history_.back();
+  return current_time_stamp - history_.back();
 }
 
 LRUKReplacer::LRUKReplacer(size_t num_frames, size_t k) : replacer_size_(num_frames), k_(k) {}
@@ -66,7 +67,7 @@ auto LRUKReplacer::Evict(frame_id_t *frame_id) -> bool {
     return false;
   }
 
-  LRUKNode::set_current_timestamp(static_cast<size_t>(
+  LRUKNode::SetCurrentTimeStamp(static_cast<size_t>(
       std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::system_clock::now().time_since_epoch())
           .count()));
   auto victim = *std::max_element(node_store_.begin(), node_store_.end(),
@@ -88,7 +89,7 @@ void LRUKReplacer::RecordAccess(frame_id_t frame_id, [[maybe_unused]] AccessType
   if (node_store_.find(frame_id) == node_store_.end()) {
     node_store_[frame_id] = LRUKNode(k_, frame_id);
   } else {
-    node_store_[frame_id].record_access();
+    node_store_[frame_id].RecordAccess();
   }
   latch_.unlock();
 }
@@ -99,7 +100,7 @@ void LRUKReplacer::SetEvictable(frame_id_t frame_id, bool set_evictable) {
     latch_.unlock();
     throw Exception("Frame Id is not valid");
   }
-  bool prev_evictable = node_store_[frame_id].is_evictable();
+  bool prev_evictable = node_store_[frame_id].IsEvictable();
   if (prev_evictable) {
     if (!set_evictable) {
       curr_size_--;
@@ -109,7 +110,7 @@ void LRUKReplacer::SetEvictable(frame_id_t frame_id, bool set_evictable) {
       curr_size_++;
     }
   }
-  node_store_[frame_id].set_evictable(set_evictable);
+  node_store_[frame_id].SetEvictable(set_evictable);
   latch_.unlock();
 }
 
@@ -120,7 +121,7 @@ void LRUKReplacer::Remove(frame_id_t frame_id) {
     return;
   }
 
-  if (!node_store_[frame_id].is_evictable()) {
+  if (!node_store_[frame_id].IsEvictable()) {
     latch_.unlock();
     throw Exception("Frame is not evictable");
   }

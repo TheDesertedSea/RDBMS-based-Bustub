@@ -12,7 +12,6 @@
 
 #pragma once
 
-
 #include <limits>
 #include <list>
 #include <mutex>  // NOLINT
@@ -28,8 +27,7 @@ enum class AccessType { Unknown = 0, Lookup, Scan, Index };
 
 class LRUKNode {
  private:
-
- static size_t CurrentTimeStamp;
+  static size_t current_time_stamp;
   /** History of last seen K timestamps of this page. Least recent timestamp stored in front. */
   // Remove maybe_unused if you start using them. Feel free to change the member variables as you want.
 
@@ -39,30 +37,29 @@ class LRUKNode {
   bool is_evictable_{false};
 
  public:
-  static void set_current_timestamp(size_t timestamp) { CurrentTimeStamp = timestamp; }
+  static void SetCurrentTimeStamp(size_t timestamp) { current_time_stamp = timestamp; }
 
   LRUKNode() = default;
 
   LRUKNode(size_t k, frame_id_t fid);
 
-    /**
+  /**
    * Compare two LRUKNodes based on backward k-distance and timestamp of last access.
    *
    * The node with smaller backward k-distance is considered smaller. If backward k-distance
    * is equal, then the node with more recent timestamp is considered smaller.
    */
-  bool operator<(const LRUKNode &other) const;
+  auto operator<(const LRUKNode &other) const -> bool;
 
-  size_t backward_k_distance() const;
+  auto BackwardDistance() const -> size_t;
 
+  void RecordAccess();
 
-  void record_access();
+  void SetEvictable(bool evictable) { is_evictable_ = evictable; }
 
-  void set_evictable(bool evictable) { is_evictable_ = evictable; }
+  auto FrameId() const -> frame_id_t { return fid_; }
 
-  frame_id_t frame_id() const { return fid_; }
-
-  bool is_evictable() const { return is_evictable_; }
+  auto IsEvictable() const -> bool { return is_evictable_; }
 };
 
 /**

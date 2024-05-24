@@ -43,7 +43,6 @@ struct DiskRequest {
 
   DiskRequest(bool is_write, char *data, page_id_t page_id, std::promise<bool> &&callback)
       : is_write_(is_write), data_(data), page_id_(page_id), callback_(std::move(callback)) {}
-
 };
 
 /**
