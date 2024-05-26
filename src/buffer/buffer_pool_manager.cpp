@@ -39,7 +39,6 @@ BufferPoolManager::BufferPoolManager(size_t pool_size, DiskManager *disk_manager
 BufferPoolManager::~BufferPoolManager() { delete[] pages_; }
 
 auto BufferPoolManager::NewPage(page_id_t *page_id) -> Page * {
-  std::cout << "NewPage: " << std::endl;
   std::scoped_lock latch(latch_);
   int frame_id = -1;
   Page *page = nullptr;
@@ -48,7 +47,6 @@ auto BufferPoolManager::NewPage(page_id_t *page_id) -> Page * {
     auto evict_result = replacer_->Evict(&frame_id);
     if (!evict_result) {
       // No evictable page
-      std::cout << "No evictable page" << std::endl;
       return nullptr;
     }
 
@@ -78,24 +76,20 @@ auto BufferPoolManager::NewPage(page_id_t *page_id) -> Page * {
   replacer_->RecordAccess(frame_id, AccessType::Unknown);  // Add the frame to the replacer
   replacer_->SetEvictable(frame_id, false);                // The page is pinned
   page_table_[*page_id] = frame_id;
-  std::cout << "Page " << *page_id << " is allocated on frame " << frame_id << std::endl;
   return page;
 }
 
 auto BufferPoolManager::FetchPage(page_id_t page_id, [[maybe_unused]] AccessType access_type) -> Page * {
-  std::cout << "FetchPage: " << page_id << std::endl;
   std::scoped_lock latch(latch_);
   int frame_id = -1;
   Page *page = nullptr;
   if (page_table_.find(page_id) == page_table_.end()) {
-    std::cout << "Page not in the buffer pool" << std::endl;
     // Page not in the buffer pool
     if (free_list_.empty()) {
       // No free page
       auto evict_result = replacer_->Evict(&frame_id);
       if (!evict_result) {
         // No evictable page
-        std::cout << "No evictable page" << std::endl;
         return nullptr;
       }
 
@@ -135,22 +129,18 @@ auto BufferPoolManager::FetchPage(page_id_t page_id, [[maybe_unused]] AccessType
   page->pin_count_++;
   replacer_->RecordAccess(frame_id, access_type);
   replacer_->SetEvictable(frame_id, false);  // The page is pinned
-  std::cout << "Page fetched on frame " << frame_id << std::endl;
   return page;
 }
 
 auto BufferPoolManager::UnpinPage(page_id_t page_id, bool is_dirty, [[maybe_unused]] AccessType access_type) -> bool {
-  std::cout << "UnpinPage: " << page_id << " is_dirty: " << is_dirty << std::endl;
   std::scoped_lock latch(latch_);
   if (page_table_.find(page_id) == page_table_.end()) {
-    std::cout << "Page not in the buffer pool" << std::endl;
     return false;
   }
 
   int frame_id = page_table_[page_id];
   Page *page = &pages_[frame_id];
   if (page->pin_count_ <= 0) {
-    std::cout << "Pin count is already 0" << std::endl;
     return false;
   }
 
@@ -161,15 +151,12 @@ auto BufferPoolManager::UnpinPage(page_id_t page_id, bool is_dirty, [[maybe_unus
   if (page->pin_count_ == 0) {
     replacer_->SetEvictable(frame_id, true);
   }
-  std::cout << "Pin count: " << page->pin_count_ << std::endl;
   return true;
 }
 
 auto BufferPoolManager::FlushPage(page_id_t page_id) -> bool {
-  std::cout << "FlushPage: " << page_id << std::endl;
   std::scoped_lock latch(latch_);
   if (page_table_.find(page_id) == page_table_.end()) {
-    std::cout << "Page not in the buffer pool" << std::endl;
     return false;
   }
 
@@ -184,10 +171,8 @@ auto BufferPoolManager::FlushPage(page_id_t page_id) -> bool {
 }
 
 void BufferPoolManager::FlushAllPages() {
-  std::cout << "FlushAllPages" << std::endl;
   std::scoped_lock latch(latch_);
   for (auto &entry : page_table_) {
-    std::cout << "Flushing page " << entry.first << std::endl;
     page_id_t page_id = entry.first;
     int frame_id = entry.second;
     Page *page = &pages_[frame_id];
@@ -200,17 +185,14 @@ void BufferPoolManager::FlushAllPages() {
 }
 
 auto BufferPoolManager::DeletePage(page_id_t page_id) -> bool {
-  std::cout << "DeletePage: " << page_id << std::endl;
   std::scoped_lock latch(latch_);
   if (page_table_.find(page_id) == page_table_.end()) {
-    std::cout << "Page not in the buffer pool" << std::endl;
     return true;
   }
 
   int frame_id = page_table_[page_id];
   Page *page = &pages_[frame_id];
   if (page->pin_count_ > 0) {
-    std::cout << "Page is pinned" << std::endl;
     return false;
   }
 
@@ -230,7 +212,6 @@ auto BufferPoolManager::DeletePage(page_id_t page_id) -> bool {
   page->pin_count_ = 0;
   page->is_dirty_ = false;
   DeallocatePage(page_id);
-  std::cout << "Page deleted" << std::endl;
   return true;
 }
 
