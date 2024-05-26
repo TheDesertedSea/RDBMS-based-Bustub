@@ -214,6 +214,14 @@ auto BufferPoolManager::DeletePage(page_id_t page_id) -> bool {
     return false;
   }
 
+  if (page->IsDirty()) {
+    // Write the previous page back to disk
+    auto promise = disk_scheduler_->CreatePromise();
+    auto future = promise.get_future();
+    disk_scheduler_->Schedule({true, page->GetData(), page->GetPageId(), std::move(promise)});
+    future.get();
+  }
+
   page_table_.erase(page_id);
   replacer_->Remove(frame_id);
   free_list_.push_back(frame_id);
