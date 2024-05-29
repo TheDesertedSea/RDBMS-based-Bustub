@@ -217,12 +217,30 @@ auto BufferPoolManager::DeletePage(page_id_t page_id) -> bool {
 
 auto BufferPoolManager::AllocatePage() -> page_id_t { return next_page_id_++; }
 
-auto BufferPoolManager::FetchPageBasic(page_id_t page_id) -> BasicPageGuard { return {this, nullptr}; }
+auto BufferPoolManager::FetchPageBasic(page_id_t page_id) -> BasicPageGuard {
+  std::cout << "BufferPoolManager::FetchPageBasic(), page id: " << page_id << std::endl;
+  Page *page = FetchPage(page_id, AccessType::Unknown);
+  return {this, page};
+}
 
-auto BufferPoolManager::FetchPageRead(page_id_t page_id) -> ReadPageGuard { return {this, nullptr}; }
+auto BufferPoolManager::FetchPageRead(page_id_t page_id) -> ReadPageGuard {
+  std::cout << "BufferPoolManager::FetchPageRead(), page id: " << page_id << std::endl;
+  Page *page = FetchPage(page_id, AccessType::Unknown);
+  page->RLatch();
+  return {this, page};
+}
 
-auto BufferPoolManager::FetchPageWrite(page_id_t page_id) -> WritePageGuard { return {this, nullptr}; }
+auto BufferPoolManager::FetchPageWrite(page_id_t page_id) -> WritePageGuard {
+  std::cout << "BufferPoolManager::FetchPageWrite(), page id: " << page_id << std::endl;
+  Page *page = FetchPage(page_id, AccessType::Unknown);
+  page->WLatch();
+  return {this, page};
+}
 
-auto BufferPoolManager::NewPageGuarded(page_id_t *page_id) -> BasicPageGuard { return {this, nullptr}; }
+auto BufferPoolManager::NewPageGuarded(page_id_t *page_id) -> BasicPageGuard {
+  std::cout << "BufferPoolManager::NewPageGuarded()" << std::endl;
+  Page *page = NewPage(page_id);
+  return {this, page};
+}
 
 }  // namespace bustub
