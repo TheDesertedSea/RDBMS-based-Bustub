@@ -11,6 +11,7 @@
 //===----------------------------------------------------------------------===//
 
 #include <algorithm>
+#include <cstdint>
 #include <optional>
 #include <utility>
 
@@ -48,7 +49,7 @@ auto ExtendibleHTableBucketPage<K, V, KC>::Insert(const K &key, const V &value, 
     return false;
   }
 
-  for (uint64_t i = 0; i < size_; i++) {
+  for (uint32_t i = 0; i < size_; i++) {
     if (cmp(array_[i].first, key) == 0 && !(array_[i].second == V())) {
       return false;
     }
@@ -66,16 +67,24 @@ auto ExtendibleHTableBucketPage<K, V, KC>::Insert(const K &key, const V &value, 
 }
 
 template <typename KeyType, typename ValueType, typename KeyComparator>
-auto ExtendibleHTableBucketPage<KeyType, ValueType, KeyComparator>::Remove(const KeyType &key,
-                                                                           const KeyComparator &cmp) -> bool {
-  uint64_t idx = 0;
-  for (; idx < size_; idx++) {
-    if (cmp(array_[idx].first, key) == 0 && !(array_[idx].second == ValueType())) {
+auto ExtendibleHTableBucketPage<KeyType, ValueType, KeyComparator>::Remove(const KeyType &key, const KeyComparator &cmp)
+    -> bool {
+  uint32_t idx = 0;
+  uint32_t record_traversed = 0;
+  for (; idx < max_size_; idx++) {
+    bool valid = !(array_[idx].second == ValueType());
+    if (cmp(array_[idx].first, key) == 0 && valid) {
       break;
+    }
+    if (valid) {
+      record_traversed++;
+      if (record_traversed == size_) {
+        break;
+      }
     }
   }
 
-  if (idx == size_) {
+  if (record_traversed == size_) {
     return false;
   }
 

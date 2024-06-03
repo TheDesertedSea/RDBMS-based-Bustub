@@ -13,6 +13,7 @@
 #include "storage/page/extendible_htable_directory_page.h"
 
 #include <algorithm>
+#include <cstdint>
 #include <cstring>
 #include <unordered_map>
 
@@ -29,7 +30,7 @@ void ExtendibleHTableDirectoryPage::Init(uint32_t max_depth) {
 }
 
 auto ExtendibleHTableDirectoryPage::HashToBucketIndex(uint32_t hash) const -> uint32_t {
-  return (hash >> (32 - global_depth_)) & ((1 << global_depth_) - 1);
+  return hash & ((1 << global_depth_) - 1);
 }
 
 auto ExtendibleHTableDirectoryPage::GetBucketPageId(uint32_t bucket_idx) const -> page_id_t {
@@ -41,23 +42,26 @@ void ExtendibleHTableDirectoryPage::SetBucketPageId(uint32_t bucket_idx, page_id
 }
 
 auto ExtendibleHTableDirectoryPage::GetSplitImageIndex(uint32_t bucket_idx) const -> uint32_t {
-  return bucket_idx ^ (1 << (global_depth_ - local_depths_[bucket_idx] - 1));
+  uint8_t local_depth = local_depths_[bucket_idx];
+  return bucket_idx ^ (1 << local_depth);
 }
 
 auto ExtendibleHTableDirectoryPage::GetGlobalDepth() const -> uint32_t { return global_depth_; }
 
-void ExtendibleHTableDirectoryPage::IncrGlobalDepth() { global_depth_++; }
+void ExtendibleHTableDirectoryPage::IncrGlobalDepth() {
+  for (uint32_t i = 0; i < (1 << global_depth_); i++) {
+    auto counter_idx = i | (1 << global_depth_);
+    bucket_page_ids_[counter_idx] = bucket_page_ids_[i];
+    local_depths_[counter_idx] = local_depths_[i];
+  }
+  global_depth_++;
+}
 
 void ExtendibleHTableDirectoryPage::DecrGlobalDepth() { global_depth_--; }
 
 auto ExtendibleHTableDirectoryPage::CanShrink() -> bool {
-  for (uint32_t i = 0; i < HTABLE_DIRECTORY_ARRAY_SIZE; i++) {
-    if (local_depths_[i] == global_depth_) {
-      return false;
-    }
-  }
-
-  return true;
+  return std::all_of(local_depths_, local_depths_ + (1 << global_depth_),
+                     [this](uint8_t local_depth) { return local_depth < global_depth_; });
 }
 
 auto ExtendibleHTableDirectoryPage::Size() const -> uint32_t { return (1 << global_depth_); }
