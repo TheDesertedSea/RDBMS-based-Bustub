@@ -13,12 +13,13 @@
 #include "storage/page/extendible_htable_header_page.h"
 
 #include <cstring>
+#include "common/config.h"
 #include "common/exception.h"
 
 namespace bustub {
 
 void ExtendibleHTableHeaderPage::Init(uint32_t max_depth) {
-  memset(directory_page_ids_, 0, sizeof(directory_page_ids_));
+  memset(directory_page_ids_, INVALID_PAGE_ID, sizeof(directory_page_ids_));
   max_depth_ = max_depth;
 }
 

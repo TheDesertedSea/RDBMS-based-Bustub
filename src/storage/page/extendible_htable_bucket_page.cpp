@@ -45,7 +45,7 @@ auto ExtendibleHTableBucketPage<K, V, KC>::Lookup(const K &key, V &value, const 
 
 template <typename K, typename V, typename KC>
 auto ExtendibleHTableBucketPage<K, V, KC>::Insert(const K &key, const V &value, const KC &cmp) -> bool {
-  if (size_ == max_size_) {
+  if (IsFull()) {
     return false;
   }
 
@@ -95,7 +95,10 @@ auto ExtendibleHTableBucketPage<KeyType, ValueType, KeyComparator>::Remove(const
 }
 
 template <typename KeyType, typename ValueType, typename KeyComparator>
-void ExtendibleHTableBucketPage<KeyType, ValueType, KeyComparator>::RemoveAt(uint32_t bucket_idx) {}
+void ExtendibleHTableBucketPage<KeyType, ValueType, KeyComparator>::RemoveAt(uint32_t bucket_idx) {
+  array_[bucket_idx].second = ValueType();
+  size_--;
+}
 
 template <typename K, typename V, typename KC>
 auto ExtendibleHTableBucketPage<K, V, KC>::KeyAt(uint32_t bucket_idx) const -> K {
