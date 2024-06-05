@@ -48,7 +48,7 @@ class DiskExtendibleHashTable {
    * @param directory_max_depth the max depth allowed for the directory page
    * @param bucket_max_size the max size allowed for the bucket page array
    */
-  explicit DiskExtendibleHashTable(const std::string &name, BufferPoolManager *bpm, const KC &cmp,
+  explicit DiskExtendibleHashTable(std::string name, BufferPoolManager *bpm, const KC &cmp,
                                    const HashFunction<K> &hash_fn, uint32_t header_max_depth = HTABLE_HEADER_MAX_DEPTH,
                                    uint32_t directory_max_depth = HTABLE_DIRECTORY_MAX_DEPTH,
                                    uint32_t bucket_max_size = HTableBucketArraySize(sizeof(std::pair<K, V>)));
@@ -121,9 +121,9 @@ class DiskExtendibleHashTable {
 
   void MigrateEntries(ExtendibleHTableBucketPage<K, V, KC> *old_bucket,
                       ExtendibleHTableBucketPage<K, V, KC> *new_bucket);
-  
+
   void MergeBuckets(ExtendibleHTableDirectoryPage *directory, ExtendibleHTableBucketPage<K, V, KC> *bucket,
-                    uint32_t bucket_idx, uint32_t local_depth);
+                    WritePageGuard bucket_guard, uint32_t bucket_idx);
 
   // member variables
   std::string index_name_;

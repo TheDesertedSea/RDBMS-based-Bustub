@@ -78,6 +78,8 @@ class ExtendibleHTableBucketPage {
    */
   auto Insert(const KeyType &key, const ValueType &value, const KeyComparator &cmp) -> bool;
 
+  void UpdateAll(std::vector<std::pair<KeyType, ValueType>> &entries);
+
   /**
    * Removes a key and value.
    *

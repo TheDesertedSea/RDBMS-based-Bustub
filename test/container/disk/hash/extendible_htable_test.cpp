@@ -23,7 +23,7 @@
 namespace bustub {
 
 // NOLINTNEXTLINE
-TEST(ExtendibleHTableTest, DISABLED_InsertTest1) {
+TEST(ExtendibleHTableTest, InsertTest1) {
   auto disk_mgr = std::make_unique<DiskManagerUnlimitedMemory>();
   auto bpm = std::make_unique<BufferPoolManager>(50, disk_mgr.get());
 
@@ -48,7 +48,7 @@ TEST(ExtendibleHTableTest, DISABLED_InsertTest1) {
 }
 
 // NOLINTNEXTLINE
-TEST(ExtendibleHTableTest, DISABLED_InsertTest2) {
+TEST(ExtendibleHTableTest, InsertTest2) {
   auto disk_mgr = std::make_unique<DiskManagerUnlimitedMemory>();
   auto bpm = std::make_unique<BufferPoolManager>(50, disk_mgr.get());
 
@@ -91,7 +91,7 @@ TEST(ExtendibleHTableTest, DISABLED_InsertTest2) {
 }
 
 // NOLINTNEXTLINE
-TEST(ExtendibleHTableTest, DISABLED_RemoveTest1) {
+TEST(ExtendibleHTableTest, RemoveTest1) {
   auto disk_mgr = std::make_unique<DiskManagerUnlimitedMemory>();
   auto bpm = std::make_unique<BufferPoolManager>(50, disk_mgr.get());
 
@@ -154,6 +154,33 @@ TEST(ExtendibleHTableTest, DISABLED_RemoveTest1) {
   }
 
   ht.VerifyIntegrity();
+}
+
+TEST(ExtendibleHTableTest, RecursiveMergeTest) {
+  auto disk_mgr = std::make_unique<DiskManagerUnlimitedMemory>();
+  auto bpm = std::make_unique<BufferPoolManager>(50, disk_mgr.get());
+
+  DiskExtendibleHashTable<int, int, IntComparator> ht("blah", bpm.get(), IntComparator(), HashFunction<int>(), 1, 2, 2);
+
+  ht.Insert(4, 4);
+  ht.Insert(5, 5);
+  ht.Insert(6, 6);
+  ht.Insert(14, 14);
+
+  ht.Remove(5);
+  ht.Remove(14);
+  ht.Remove(4);
+
+  auto header_page_id = ht.GetHeaderPageId();
+  auto header_page_guard = bpm->FetchPageRead(header_page_id);
+  auto header = header_page_guard.As<ExtendibleHTableHeaderPage>();
+
+  auto directory_page_id = header->GetDirectoryPageId(0);
+  auto directory_page_guard = bpm->FetchPageRead(directory_page_id);
+  auto directory = directory_page_guard.As<ExtendibleHTableDirectoryPage>();
+
+
+  ASSERT_EQ(0, directory->GetGlobalDepth());
 }
 
 }  // namespace bustub

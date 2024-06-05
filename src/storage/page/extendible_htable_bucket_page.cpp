@@ -32,9 +32,6 @@ template <typename K, typename V, typename KC>
 auto ExtendibleHTableBucketPage<K, V, KC>::Lookup(const K &key, V &value, const KC &cmp) const -> bool {
   for (uint64_t i = 0; i < size_; i++) {
     if (cmp(array_[i].first, key) == 0) {
-      if (array_[i].second == V()) {
-        return false;
-      }
       value = array_[i].second;
       return true;
     }
@@ -50,15 +47,8 @@ auto ExtendibleHTableBucketPage<K, V, KC>::Insert(const K &key, const V &value, 
   }
 
   for (uint32_t i = 0; i < size_; i++) {
-    if (cmp(array_[i].first, key) == 0 && !(array_[i].second == V())) {
+    if (cmp(array_[i].first, key) == 0) {
       return false;
-    }
-
-    if (array_[i].second == V()) {
-      array_[i].first = key;
-      array_[i].second = value;
-      size_++;
-      return true;
     }
   }
 
@@ -70,28 +60,33 @@ template <typename KeyType, typename ValueType, typename KeyComparator>
 auto ExtendibleHTableBucketPage<KeyType, ValueType, KeyComparator>::Remove(const KeyType &key, const KeyComparator &cmp)
     -> bool {
   uint32_t idx = 0;
-  uint32_t record_traversed = 0;
-  for (; idx < max_size_; idx++) {
-    bool valid = !(array_[idx].second == ValueType());
-    if (cmp(array_[idx].first, key) == 0 && valid) {
+  for (; idx < size_; idx++) {
+    if (cmp(array_[idx].first, key) == 0) {
       break;
-    }
-    if (valid) {
-      record_traversed++;
-      if (record_traversed == size_) {
-        break;
-      }
     }
   }
 
-  if (record_traversed == size_) {
+  if (idx == size_) {
     return false;
   }
 
   array_[idx].second = ValueType();
   size_--;
 
+  for (; idx < size_; idx++) {
+    array_[idx] = array_[idx + 1];
+  }
+
   return true;
+}
+
+template <typename KeyType, typename ValueType, typename KeyComparator>
+void ExtendibleHTableBucketPage<KeyType, ValueType, KeyComparator>::UpdateAll(
+    std::vector<std::pair<KeyType, ValueType>> &entries) {
+  size_ = entries.size();
+  for (uint32_t i = 0; i < size_; i++) {
+    array_[i] = entries[i];
+  }
 }
 
 template <typename KeyType, typename ValueType, typename KeyComparator>
