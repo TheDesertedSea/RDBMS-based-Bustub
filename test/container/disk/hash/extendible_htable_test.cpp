@@ -179,7 +179,6 @@ TEST(ExtendibleHTableTest, RecursiveMergeTest) {
   auto directory_page_guard = bpm->FetchPageRead(directory_page_id);
   auto directory = directory_page_guard.As<ExtendibleHTableDirectoryPage>();
 
-
   ASSERT_EQ(0, directory->GetGlobalDepth());
 }
 

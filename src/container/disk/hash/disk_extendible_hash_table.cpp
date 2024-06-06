@@ -43,9 +43,6 @@ DiskExtendibleHashTable<K, V, KC>::DiskExtendibleHashTable(std::string name, Buf
       header_max_depth_(header_max_depth),
       directory_max_depth_(directory_max_depth),
       bucket_max_size_(bucket_max_size) {
-  std::cout << "header_max_depth: " << header_max_depth << ", directory_max_depth: " << directory_max_depth
-            << ", bucket_max_size: " << bucket_max_size << std::endl;
-
   // create the header page
   page_id_t header_page_id;
   auto header_page_guard = bpm_->NewPageGuarded(&header_page_id).UpgradeWrite();
@@ -58,8 +55,8 @@ DiskExtendibleHashTable<K, V, KC>::DiskExtendibleHashTable(std::string name, Buf
  * SEARCH
  *****************************************************************************/
 template <typename K, typename V, typename KC>
-auto DiskExtendibleHashTable<K, V, KC>::GetValue(const K &key, std::vector<V> *result,
-                                                 Transaction *transaction) const -> bool {
+auto DiskExtendibleHashTable<K, V, KC>::GetValue(const K &key, std::vector<V> *result, Transaction *transaction) const
+    -> bool {
   auto header_page_guard = bpm_->FetchPageRead(header_page_id_);
   auto header_page = header_page_guard.As<ExtendibleHTableHeaderPage>();
   auto hash = Hash(key);
@@ -95,7 +92,6 @@ auto DiskExtendibleHashTable<K, V, KC>::GetValue(const K &key, std::vector<V> *r
 template <typename KeyType, typename ValueType, typename KeyComparator>
 auto DiskExtendibleHashTable<KeyType, ValueType, KeyComparator>::Insert(const KeyType &key, const ValueType &value,
                                                                         Transaction *transaction) -> bool {
-  std::cout << "Inserting key: " << key << std::endl;
   auto header_page_guard = bpm_->FetchPageWrite(header_page_id_);
   auto header_page = header_page_guard.AsMut<ExtendibleHTableHeaderPage>();
   auto hash = Hash(key);
@@ -120,13 +116,14 @@ auto DiskExtendibleHashTable<KeyType, ValueType, KeyComparator>::Insert(const Ke
   ValueType temp_value;
   auto has_key = bucket_page->Lookup(key, temp_value, cmp_);
   if (has_key) {
+    // key already exists
     return false;
   }
   auto insert_result = bucket_page->Insert(key, value, cmp_);
   if (insert_result) {
-    std::cout << "Inserted to bucket_idx: " << bucket_idx << std::endl;
     return true;
   }
+  // bucket is full
 
   // split the bucket
   auto local_depth = directory_page->GetLocalDepth(bucket_idx);
@@ -141,8 +138,8 @@ auto DiskExtendibleHashTable<KeyType, ValueType, KeyComparator>::Insert(const Ke
     directory_page->IncrGlobalDepth();
   }
 
+  // create a new bucket as the split bucket
   auto split_bucket_idx = directory_page->GetSplitImageIndex(bucket_idx);
-  // create a new bucket
   page_id_t split_bucket_page_id;
   auto split_bucket_page_guard = bpm_->NewPageGuarded(&split_bucket_page_id).UpgradeWrite();
   auto split_bucket_page =
@@ -174,12 +171,10 @@ auto DiskExtendibleHashTable<KeyType, ValueType, KeyComparator>::Insert(const Ke
   // insert the new key
   if (Hash(key) & (1 << local_depth)) {
     bucket_page_guard.Drop();
-    std::cout << "Inserting to bucket_idx: " << split_bucket_idx << std::endl;
     return split_bucket_page->Insert(key, value, cmp_);
   }
 
   split_bucket_page_guard.Drop();
-  std::cout << "Inserting to bucket_idx: " << bucket_idx << std::endl;
   return bucket_page->Insert(key, value, cmp_);
 }
 
@@ -203,7 +198,6 @@ auto DiskExtendibleHashTable<K, V, KC>::InsertToNewBucket(ExtendibleHTableDirect
   bucket_page->Init(bucket_max_size_);
   directory->SetBucketPageId(bucket_idx, bucket_page_id);
 
-  std::cout << "Inserting to bucket_idx: " << bucket_idx << std::endl;
   return bucket_page->Insert(key, value, cmp_);
 }
 
@@ -244,12 +238,15 @@ auto DiskExtendibleHashTable<K, V, KC>::Remove(const K &key, Transaction *transa
     return false;
   }
 
+  // try to merge the bucket
   if (directory_page->GetGlobalDepth() == 0) {
+    // directory has only one bucket
     return true;
   }
 
   MergeBuckets(directory_page, bucket_page, std::move(bucket_page_guard), bucket_idx);
 
+  // try to shrink the directory
   while (directory_page->CanShrink()) {
     directory_page->DecrGlobalDepth();
   }
@@ -261,12 +258,15 @@ template <typename K, typename V, typename KC>
 void DiskExtendibleHashTable<K, V, KC>::MergeBuckets(ExtendibleHTableDirectoryPage *directory,
                                                      ExtendibleHTableBucketPage<K, V, KC> *bucket,
                                                      WritePageGuard bucket_guard, uint32_t bucket_idx) {
+  // Only empty bucket can start a merge, if the counter bucket is able to merge, the merge should
+  // be done by the counter bucket
   if (!bucket->IsEmpty()) {
     return;
   }
 
   auto local_depth = directory->GetLocalDepth(bucket_idx);
   if (local_depth == 0) {
+    // bucket is the only bucket in the directory
     return;
   }
 
@@ -285,6 +285,7 @@ void DiskExtendibleHashTable<K, V, KC>::MergeBuckets(ExtendibleHTableDirectoryPa
   auto new_local_depth = local_depth - 1;
   auto merged_bucket_idx = std::min(bucket_idx, counter_bucket_idx);
   if (merged_bucket_idx == counter_bucket_idx) {
+    // merge the entries from the bucket to the counter bucket
     bpm_->DeletePage(directory->GetBucketPageId(bucket_idx));
     directory->SetBucketPageId(bucket_idx, INVALID_PAGE_ID);
     directory->SetLocalDepth(bucket_idx, 0);
@@ -297,6 +298,7 @@ void DiskExtendibleHashTable<K, V, KC>::MergeBuckets(ExtendibleHTableDirectoryPa
   }
   directory->SetLocalDepth(merged_bucket_idx, new_local_depth);
 
+  // try to merge the new merged bucket recursively
   if (merged_bucket_idx == bucket_idx) {
     counter_bucket_page_guard.Drop();
     MergeBuckets(directory, bucket, std::move(bucket_guard), merged_bucket_idx);
@@ -305,8 +307,10 @@ void DiskExtendibleHashTable<K, V, KC>::MergeBuckets(ExtendibleHTableDirectoryPa
     MergeBuckets(directory, counter_bucket_page, std::move(counter_bucket_page_guard), merged_bucket_idx);
   }
 
-  // Try merge new counter bucket
+  // try to merge the new counter bucket, since it is possible that the merged bucket is not empty
+  // but the new counter bucket is empty
   if (new_local_depth == 0) {
+    // the new bucket is the only bucket in the directory
     return;
   }
 

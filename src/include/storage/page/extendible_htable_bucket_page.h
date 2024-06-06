@@ -78,6 +78,11 @@ class ExtendibleHTableBucketPage {
    */
   auto Insert(const KeyType &key, const ValueType &value, const KeyComparator &cmp) -> bool;
 
+  /**
+   * Set the contents of the bucket to the given entries.
+   *
+   * @param entries the entries to set the bucket to
+   */
   void UpdateAll(std::vector<std::pair<KeyType, ValueType>> &entries);
 
   /**
@@ -136,6 +141,13 @@ class ExtendibleHTableBucketPage {
  private:
   uint32_t size_;
   uint32_t max_size_;
+
+  /**
+   * pairs of key and value
+   *
+   * All valid entries are maintained at the beginning of the array.
+   * Entries exceeding the size_ are considered invalid.
+   */
   MappingType array_[HTableBucketArraySize(sizeof(MappingType))];
 };
 

@@ -110,18 +110,47 @@ class DiskExtendibleHashTable {
    */
   auto Hash(K key) const -> uint32_t;
 
+  /**
+   * Create and initialize a new bucket page, then insert the key-value pair into the new bucket.
+   *
+   * @param header the header page
+   * @param hash the hash value of the key
+   * @param key the key to insert
+   * @param value the value to insert
+   */
   auto InsertToNewDirectory(ExtendibleHTableHeaderPage *header, uint32_t directory_idx, uint32_t hash, const K &key,
                             const V &value) -> bool;
 
+  /**
+   * Create and initialize a new bucket page, then insert the key-value pair into the new bucket.
+   *
+   * @param directory the directory page
+   * @param bucket_idx the index of the bucket
+   * @param key the key to insert
+   * @param value the value to insert
+   */
   auto InsertToNewBucket(ExtendibleHTableDirectoryPage *directory, uint32_t bucket_idx, const K &key, const V &value)
       -> bool;
 
   void UpdateDirectoryMapping(ExtendibleHTableDirectoryPage *directory, uint32_t new_bucket_idx,
                               page_id_t new_bucket_page_id, uint32_t new_local_depth, uint32_t local_depth_mask);
 
+  /**
+   * Migrate entries from the old bucket to the new bucket.
+   *
+   * @param old_bucket the old bucket
+   * @param new_bucket the new bucket
+   */
   void MigrateEntries(ExtendibleHTableBucketPage<K, V, KC> *old_bucket,
                       ExtendibleHTableBucketPage<K, V, KC> *new_bucket);
 
+  /**
+   * Try to merge the bucket with its counter bucket.
+   * @param directory the directory page
+   * @param bucket the bucket page
+   * @param bucket_guard the bucket page guard
+   * @param bucket_idx the index of the bucket
+   */
   void MergeBuckets(ExtendibleHTableDirectoryPage *directory, ExtendibleHTableBucketPage<K, V, KC> *bucket,
                     WritePageGuard bucket_guard, uint32_t bucket_idx);
 

@@ -80,10 +80,10 @@ class ExtendibleHTableDirectoryPage {
   void SetBucketPageId(uint32_t bucket_idx, page_id_t bucket_page_id);
 
   /**
-   * Gets the split image of an index
+   * Gets the index of the split image of a bucket
    *
-   * @param bucket_idx the directory index for which to find the split image
-   * @return the directory index of the split image
+   * @param bucket_idx the index of the bucket
+   * @return the directory index of the split image of the bucket
    **/
   auto GetSplitImageIndex(uint32_t bucket_idx) const -> uint32_t;
 

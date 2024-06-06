@@ -55,13 +55,9 @@ void ExtendibleHTableDirectoryPage::IncrGlobalDepth() {
     local_depths_[counter_idx] = local_depths_[i];
   }
   global_depth_++;
-  std::cout << "IncrGlobalDepth, current global_depth_ = " << global_depth_ << std::endl;
 }
 
-void ExtendibleHTableDirectoryPage::DecrGlobalDepth() {
-  global_depth_--;
-  std::cout << "DecrGlobalDepth, current global_depth_ = " << global_depth_ << std::endl;
-}
+void ExtendibleHTableDirectoryPage::DecrGlobalDepth() { global_depth_--; }
 
 auto ExtendibleHTableDirectoryPage::CanShrink() -> bool {
   return std::all_of(local_depths_, local_depths_ + (1 << global_depth_),
