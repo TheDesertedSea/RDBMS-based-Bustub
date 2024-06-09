@@ -11,6 +11,12 @@
 //===----------------------------------------------------------------------===//
 
 #include <memory>
+#include "catalog/schema.h"
+#include "storage/table/tuple.h"
+#include "type/integer_type.h"
+#include "type/type.h"
+#include "type/type_id.h"
+#include "type/value_factory.h"
 
 #include "execution/executors/insert_executor.h"
 
@@ -18,10 +24,46 @@ namespace bustub {
 
 InsertExecutor::InsertExecutor(ExecutorContext *exec_ctx, const InsertPlanNode *plan,
                                std::unique_ptr<AbstractExecutor> &&child_executor)
-    : AbstractExecutor(exec_ctx) {}
+    : AbstractExecutor(exec_ctx), plan_(plan), child_executor_(std::move(child_executor)) {}
 
-void InsertExecutor::Init() { throw NotImplementedException("InsertExecutor is not implemented"); }
+void InsertExecutor::Init() {
+  inserted_ = false;
+  child_executor_->Init();
+}
 
-auto InsertExecutor::Next([[maybe_unused]] Tuple *tuple, RID *rid) -> bool { return false; }
+auto InsertExecutor::Next([[maybe_unused]] Tuple *tuple, RID *rid) -> bool {
+  if (inserted_) {
+    return false;
+  }
+
+  auto catalog = exec_ctx_->GetCatalog();
+  auto table_info = catalog->GetTable(plan_->GetTableOid());
+  auto indexes = catalog->GetTableIndexes(table_info->name_);
+
+  TupleMeta meta;
+  meta.is_deleted_ = false;
+  Tuple t;
+  RID r;
+  int count_inserted = 0;
+  while (child_executor_->Next(&t, &r)) {
+    std::cout << "Inserting tuple: " << t.GetValue(&table_info->schema_, 0).GetAs<int32_t>() << std::endl;
+    table_info->table_->InsertTuple(meta, t, exec_ctx_->GetLockManager(), exec_ctx_->GetTransaction(),
+                                    plan_->GetTableOid());
+
+    for (auto &index_info : indexes) {
+      auto result = index_info->index_->InsertEntry(
+          t.KeyFromTuple(table_info->schema_, index_info->key_schema_, index_info->index_->GetKeyAttrs()), r,
+          exec_ctx_->GetTransaction());
+      if (!result) {
+        return false;
+      }
+    }
+    count_inserted++;
+  }
+  *tuple = Tuple{{ValueFactory::GetIntegerValue(count_inserted)}, &GetOutputSchema()};
+
+  inserted_ = true;
+  return true;
+}
 
 }  // namespace bustub
