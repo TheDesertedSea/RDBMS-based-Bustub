@@ -28,11 +28,12 @@ auto SeqScanExecutor::Next(Tuple *tuple, RID *rid) -> bool {
 
   while (!table_iter_ptr_->IsEnd()) {
     auto next_tuple = table_iter_ptr_->GetTuple();
+    auto next_rid = table_iter_ptr_->GetRID();
     ++(*table_iter_ptr_);
 
     if (!next_tuple.first.is_deleted_) {
       *tuple = next_tuple.second;
-      *rid = table_iter_ptr_->GetRID();
+      *rid = next_rid;
       if (predicate == nullptr || predicate->Evaluate(tuple, GetOutputSchema()).GetAs<bool>()) {
         return true;
       }

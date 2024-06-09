@@ -40,13 +40,12 @@ auto InsertExecutor::Next([[maybe_unused]] Tuple *tuple, RID *rid) -> bool {
   auto table_info = catalog->GetTable(plan_->GetTableOid());
   auto indexes = catalog->GetTableIndexes(table_info->name_);
 
-  TupleMeta meta;
-  meta.is_deleted_ = false;
   Tuple t;
   RID r;
   int count_inserted = 0;
   while (child_executor_->Next(&t, &r)) {
-    std::cout << "Inserting tuple: " << t.GetValue(&table_info->schema_, 0).GetAs<int32_t>() << std::endl;
+    TupleMeta meta;
+    meta.is_deleted_ = false;
     table_info->table_->InsertTuple(meta, t, exec_ctx_->GetLockManager(), exec_ctx_->GetTransaction(),
                                     plan_->GetTableOid());
 

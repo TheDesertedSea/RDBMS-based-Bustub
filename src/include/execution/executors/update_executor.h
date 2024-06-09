@@ -20,7 +20,6 @@
 #include "execution/executors/abstract_executor.h"
 #include "execution/plans/update_plan.h"
 #include "storage/table/tuple.h"
-#include "type/value_factory.h"
 
 namespace bustub {
 
@@ -61,10 +60,9 @@ class UpdateExecutor : public AbstractExecutor {
   /** The update plan node to be executed */
   const UpdatePlanNode *plan_;
 
-  /** Metadata identifying the table that should be updated */
-  const TableInfo *table_info_;
-
   /** The child executor to obtain value from */
   std::unique_ptr<AbstractExecutor> child_executor_;
+
+  bool updated_{false};
 };
 }  // namespace bustub
