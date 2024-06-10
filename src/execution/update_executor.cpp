@@ -53,18 +53,18 @@ auto UpdateExecutor::Next([[maybe_unused]] Tuple *tuple, RID *rid) -> bool {
 
     TupleMeta meta_inserted;
     meta_inserted.is_deleted_ = false;
-    table_info->table_->InsertTuple(meta_inserted, new_tuple, exec_ctx_->GetLockManager(), exec_ctx_->GetTransaction(),
-                                    plan_->GetTableOid());
+    auto new_rid = table_info->table_->InsertTuple(meta_inserted, new_tuple, exec_ctx_->GetLockManager(),
+                                                   exec_ctx_->GetTransaction(), plan_->GetTableOid());
 
     for (auto &index_info : indexes) {
       // Delete the old index entry then insert the new index entry
       index_info->index_->DeleteEntry(
-          t.KeyFromTuple(table_info->schema_, index_info->key_schema_, index_info->index_->GetKeyAttrs()), r,
-          exec_ctx_->GetTransaction());
+          t.KeyFromTuple(table_info->schema_, index_info->key_schema_, index_info->index_->GetKeyAttrs()),
+          new_rid.value(), exec_ctx_->GetTransaction());
 
       auto result = index_info->index_->InsertEntry(
-          new_tuple.KeyFromTuple(table_info->schema_, index_info->key_schema_, index_info->index_->GetKeyAttrs()), r,
-          exec_ctx_->GetTransaction());
+          new_tuple.KeyFromTuple(table_info->schema_, index_info->key_schema_, index_info->index_->GetKeyAttrs()),
+          new_rid.value(), exec_ctx_->GetTransaction());
       if (!result) {
         return false;
       }

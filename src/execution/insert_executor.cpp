@@ -46,13 +46,13 @@ auto InsertExecutor::Next([[maybe_unused]] Tuple *tuple, RID *rid) -> bool {
   while (child_executor_->Next(&t, &r)) {
     TupleMeta meta;
     meta.is_deleted_ = false;
-    table_info->table_->InsertTuple(meta, t, exec_ctx_->GetLockManager(), exec_ctx_->GetTransaction(),
-                                    plan_->GetTableOid());
+    auto new_rid = table_info->table_->InsertTuple(meta, t, exec_ctx_->GetLockManager(), exec_ctx_->GetTransaction(),
+                                                   plan_->GetTableOid());
 
     for (auto &index_info : indexes) {
       auto result = index_info->index_->InsertEntry(
-          t.KeyFromTuple(table_info->schema_, index_info->key_schema_, index_info->index_->GetKeyAttrs()), r,
-          exec_ctx_->GetTransaction());
+          t.KeyFromTuple(table_info->schema_, index_info->key_schema_, index_info->index_->GetKeyAttrs()),
+          new_rid.value(), exec_ctx_->GetTransaction());
       if (!result) {
         return false;
       }
