@@ -46,7 +46,7 @@ auto UpdateExecutor::Next([[maybe_unused]] Tuple *tuple, RID *rid) -> bool {
 
     // generate the new tuple
     std::vector<Value> values;
-    for (auto target_expr : plan_->target_expressions_) {
+    for (auto const &target_expr : plan_->target_expressions_) {
       values.push_back(target_expr->Evaluate(&t, child_executor_->GetOutputSchema()));
     }
     Tuple new_tuple(values, &child_executor_->GetOutputSchema());

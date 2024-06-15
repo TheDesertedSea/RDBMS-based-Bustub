@@ -39,7 +39,7 @@ void HASH_TABLE_INDEX_TYPE::ScanKey(const Tuple &key, std::vector<RID> *result, 
   index_key.SetFromKey(key);
 
   auto r = container_.GetValue(index_key, result, transaction);
-  if(!result->empty()) {
+  if (!result->empty()) {
     std::cout << "result: " << r << " " << (*result)[0].ToString() << std::endl;
   }
 }
