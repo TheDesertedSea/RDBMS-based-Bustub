@@ -49,7 +49,7 @@ auto ExtendibleHTableDirectoryPage::GetSplitImageIndex(uint32_t bucket_idx) cons
 auto ExtendibleHTableDirectoryPage::GetGlobalDepth() const -> uint32_t { return global_depth_; }
 
 void ExtendibleHTableDirectoryPage::IncrGlobalDepth() {
-  for (uint32_t i = 0; i < (1 << global_depth_); i++) {
+  for (uint32_t i = 0; i < static_cast<uint32_t>(1 << global_depth_); i++) {
     auto counter_idx = i | (1 << global_depth_);
     bucket_page_ids_[counter_idx] = bucket_page_ids_[i];
     local_depths_[counter_idx] = local_depths_[i];

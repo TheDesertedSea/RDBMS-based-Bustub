@@ -21,8 +21,11 @@ auto Optimizer::OptimizeSeqScanAsIndexScan(const bustub::AbstractPlanNodeRef &pl
 
   if (optimized_plan->GetType() == PlanType::SeqScan) {
     const auto &seq_scan_plan = dynamic_cast<const SeqScanPlanNode &>(*optimized_plan);
+
+    // This project only requires optimize single equality predicate
     auto filter_predicate = std::dynamic_pointer_cast<ComparisonExpression>(seq_scan_plan.filter_predicate_);
     if (filter_predicate != nullptr && filter_predicate->comp_type_ == ComparisonType::Equal) {
+      // Left child should be column value expression
       auto column_expr = std::dynamic_pointer_cast<ColumnValueExpression>(filter_predicate->GetChildAt(0));
       auto column_oid = column_expr->GetColIdx();
       auto indexes = catalog_.GetTableIndexes(catalog_.GetTable(seq_scan_plan.GetTableOid())->name_);
