@@ -26,19 +26,20 @@
 namespace bustub {
 
 struct SortEntry {
+  /** Keys calculated from order by clauses */
   std::vector<Value> keys_;
 
   Tuple tuple_;
-  RID rid;
+  RID rid_;
 };
 
 class SortComparator {
   std::vector<OrderByType> order_by_types_;
 
  public:
-  SortComparator(const std::vector<OrderByType> &order_by_types) : order_by_types_(order_by_types) {}
+  explicit SortComparator(std::vector<OrderByType> order_by_types) : order_by_types_(std::move(order_by_types)) {}
 
-  bool operator()(const SortEntry &a, const SortEntry &b) const {
+  auto operator()(const SortEntry &a, const SortEntry &b) const -> bool {
     for (size_t i = 0; i < a.keys_.size(); i++) {
       switch (order_by_types_[i]) {
         case OrderByType::DEFAULT:
@@ -51,6 +52,7 @@ class SortComparator {
           }
           break;
         case OrderByType::DESC:
+          // < of desc is considered as > of asc and vice versa
           if (a.keys_[i].CompareGreaterThan(b.keys_[i]) == CmpBool::CmpTrue) {
             return true;
           }

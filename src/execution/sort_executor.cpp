@@ -20,7 +20,7 @@ void SortExecutor::Init() {
   while (child_executor_->Next(&tuple, &rid)) {
     SortEntry entry;
     entry.tuple_ = tuple;
-    entry.rid = rid;
+    entry.rid_ = rid;
 
     for (const auto &order_by_info : plan_->GetOrderBy()) {
       entry.keys_.push_back(order_by_info.second->Evaluate(&entry.tuple_, child_executor_->GetOutputSchema()));
@@ -40,7 +40,7 @@ auto SortExecutor::Next(Tuple *tuple, RID *rid) -> bool {
   }
 
   *tuple = entry_itr_->tuple_;
-  *rid = entry_itr_->rid;
+  *rid = entry_itr_->rid_;
   ++entry_itr_;
   return true;
 }

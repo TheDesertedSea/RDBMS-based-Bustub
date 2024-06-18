@@ -31,12 +31,12 @@ struct TopNEntry {
   std::vector<OrderByType> order_by_types_;
 
   Tuple tuple_;
-  RID rid;
+  RID rid_;
 };
 
 class TopNComparator {
  public:
-  bool operator()(const TopNEntry &a, const TopNEntry &b) const {
+  auto operator()(const TopNEntry &a, const TopNEntry &b) const -> bool {
     for (size_t i = 0; i < a.keys_.size(); i++) {
       switch (a.order_by_types_[i]) {
         case OrderByType::DEFAULT:
@@ -49,6 +49,7 @@ class TopNComparator {
           }
           break;
         case OrderByType::DESC:
+          // < of desc is considered as > of asc and vice versa
           if (a.keys_[i].CompareGreaterThan(b.keys_[i]) == CmpBool::CmpTrue) {
             return true;
           }
@@ -104,8 +105,10 @@ class TopNExecutor : public AbstractExecutor {
   /** The child executor from which tuples are obtained */
   std::unique_ptr<AbstractExecutor> child_executor_;
 
+  /** Heap for maintaining top n entries */
   std::unique_ptr<std::priority_queue<TopNEntry, std::vector<TopNEntry>, TopNComparator>> top_entries_;
 
+  /** Reversed entries from heap since heap is max heap*/
   std::vector<TopNEntry> sorted_top_entries_;
 
   std::vector<TopNEntry>::iterator entry_itr_;

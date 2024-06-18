@@ -18,13 +18,17 @@ void TopNExecutor::Init() {
 
   top_entries_ = std::make_unique<std::priority_queue<TopNEntry, std::vector<TopNEntry>, TopNComparator>>();
 
+  /**
+   * Get all the tuples from the child executor and put them into the heap.
+   * If the heap size exceeds N, pop the largest element.
+   */
   Tuple tuple;
   RID rid;
   while (child_executor_->Next(&tuple, &rid)) {
     TopNEntry entry;
     entry.tuple_ = tuple;
     entry.order_by_types_ = order_by_types;
-    entry.rid = rid;
+    entry.rid_ = rid;
 
     for (const auto &order_by_info : plan_->GetOrderBy()) {
       entry.keys_.push_back(order_by_info.second->Evaluate(&entry.tuple_, child_executor_->GetOutputSchema()));
@@ -36,6 +40,7 @@ void TopNExecutor::Init() {
     }
   }
 
+  // Reverse the entries from heap since heap is max heap
   sorted_top_entries_.resize(GetNumInHeap());
   for (size_t i = sorted_top_entries_.size(); i > 0; i--) {
     sorted_top_entries_[i - 1] = top_entries_->top();
@@ -51,7 +56,7 @@ auto TopNExecutor::Next(Tuple *tuple, RID *rid) -> bool {
   }
 
   *tuple = entry_itr_->tuple_;
-  *rid = entry_itr_->rid;
+  *rid = entry_itr_->rid_;
   ++entry_itr_;
   return true;
 }
