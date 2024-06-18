@@ -70,9 +70,10 @@ auto Optimizer::OptimizeNLJAsHashJoin(const AbstractPlanNodeRef &plan) -> Abstra
     auto join_columns = GetJoinColumnExpressions(nlj_plan.Predicate());
 
     // Also optimize the left and right children plans
-    return std::make_shared<HashJoinPlanNode>(nlj_plan.output_schema_, OptimizeNLJAsHashJoin(nlj_plan.GetLeftPlan()),
-                                              OptimizeNLJAsHashJoin(nlj_plan.GetRightPlan()), join_columns.first,
-                                              join_columns.second, nlj_plan.GetJoinType());
+    return std::make_shared<HashJoinPlanNode>(nlj_plan.output_schema_,
+                                              OptimizeSortLimitAsTopN(OptimizeNLJAsHashJoin(nlj_plan.GetLeftPlan())),
+                                              OptimizeSortLimitAsTopN(OptimizeNLJAsHashJoin(nlj_plan.GetRightPlan())),
+                                              join_columns.first, join_columns.second, nlj_plan.GetJoinType());
   }
   if (optimized_plan->GetType() == PlanType::Projection) {
     // NestedLoopJoin may be under a projection

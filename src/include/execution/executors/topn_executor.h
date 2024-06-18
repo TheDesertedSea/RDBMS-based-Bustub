@@ -13,9 +13,11 @@
 #pragma once
 
 #include <memory>
+#include <queue>
 #include <utility>
 #include <vector>
 
+#include "binder/bound_order_by.h"
 #include "execution/executor_context.h"
 #include "execution/executors/abstract_executor.h"
 #include "execution/plans/seq_scan_plan.h"
@@ -23,6 +25,44 @@
 #include "storage/table/tuple.h"
 
 namespace bustub {
+
+struct TopNEntry {
+  std::vector<Value> keys_;
+  std::vector<OrderByType> order_by_types_;
+
+  Tuple tuple_;
+  RID rid;
+};
+
+class TopNComparator {
+ public:
+  bool operator()(const TopNEntry &a, const TopNEntry &b) const {
+    for (size_t i = 0; i < a.keys_.size(); i++) {
+      switch (a.order_by_types_[i]) {
+        case OrderByType::DEFAULT:
+        case OrderByType::ASC:
+          if (a.keys_[i].CompareLessThan(b.keys_[i]) == CmpBool::CmpTrue) {
+            return true;
+          }
+          if (a.keys_[i].CompareGreaterThan(b.keys_[i]) == CmpBool::CmpTrue) {
+            return false;
+          }
+          break;
+        case OrderByType::DESC:
+          if (a.keys_[i].CompareGreaterThan(b.keys_[i]) == CmpBool::CmpTrue) {
+            return true;
+          }
+          if (a.keys_[i].CompareLessThan(b.keys_[i]) == CmpBool::CmpTrue) {
+            return false;
+          }
+          break;
+        default:
+          throw std::runtime_error("Unknown OrderByType");
+      }
+    }
+    return false;
+  }
+};
 
 /**
  * The TopNExecutor executor executes a topn.
@@ -63,5 +103,11 @@ class TopNExecutor : public AbstractExecutor {
   const TopNPlanNode *plan_;
   /** The child executor from which tuples are obtained */
   std::unique_ptr<AbstractExecutor> child_executor_;
+
+  std::unique_ptr<std::priority_queue<TopNEntry, std::vector<TopNEntry>, TopNComparator>> top_entries_;
+
+  std::vector<TopNEntry> sorted_top_entries_;
+
+  std::vector<TopNEntry>::iterator entry_itr_;
 };
 }  // namespace bustub

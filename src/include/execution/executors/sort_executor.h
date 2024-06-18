@@ -15,6 +15,8 @@
 #include <memory>
 #include <vector>
 
+#include "binder/bound_order_by.h"
+#include "common/rid.h"
 #include "execution/executor_context.h"
 #include "execution/executors/abstract_executor.h"
 #include "execution/plans/seq_scan_plan.h"
@@ -22,6 +24,47 @@
 #include "storage/table/tuple.h"
 
 namespace bustub {
+
+struct SortEntry {
+  std::vector<Value> keys_;
+
+  Tuple tuple_;
+  RID rid;
+};
+
+class SortComparator {
+  std::vector<OrderByType> order_by_types_;
+
+ public:
+  SortComparator(const std::vector<OrderByType> &order_by_types) : order_by_types_(order_by_types) {}
+
+  bool operator()(const SortEntry &a, const SortEntry &b) const {
+    for (size_t i = 0; i < a.keys_.size(); i++) {
+      switch (order_by_types_[i]) {
+        case OrderByType::DEFAULT:
+        case OrderByType::ASC:
+          if (a.keys_[i].CompareLessThan(b.keys_[i]) == CmpBool::CmpTrue) {
+            return true;
+          }
+          if (a.keys_[i].CompareGreaterThan(b.keys_[i]) == CmpBool::CmpTrue) {
+            return false;
+          }
+          break;
+        case OrderByType::DESC:
+          if (a.keys_[i].CompareGreaterThan(b.keys_[i]) == CmpBool::CmpTrue) {
+            return true;
+          }
+          if (a.keys_[i].CompareLessThan(b.keys_[i]) == CmpBool::CmpTrue) {
+            return false;
+          }
+          break;
+        default:
+          throw std::runtime_error("Unknown OrderByType");
+      }
+    }
+    return false;
+  }
+};
 
 /**
  * The SortExecutor executor executes a sort.
@@ -52,5 +95,13 @@ class SortExecutor : public AbstractExecutor {
  private:
   /** The sort plan node to be executed */
   const SortPlanNode *plan_;
+
+  /** The child executor whose output is to be sorted */
+  std::unique_ptr<AbstractExecutor> child_executor_;
+
+  /** The sorted entries */
+  std::vector<SortEntry> entries_;
+
+  std::vector<SortEntry>::iterator entry_itr_;
 };
 }  // namespace bustub
