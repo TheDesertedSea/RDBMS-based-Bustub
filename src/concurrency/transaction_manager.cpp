@@ -43,6 +43,7 @@ auto TransactionManager::Begin(IsolationLevel isolation_level) -> Transaction * 
   txn_map_.insert(std::make_pair(txn_id, std::move(txn)));
 
   // TODO(fall2023): set the timestamps here. Watermark updated below.
+  txn_ref->read_ts_.store(last_commit_ts_);
 
   running_txns_.AddTxn(txn_ref->read_ts_);
   return txn_ref;
@@ -54,6 +55,7 @@ auto TransactionManager::Commit(Transaction *txn) -> bool {
   std::unique_lock<std::mutex> commit_lck(commit_mutex_);
 
   // TODO(fall2023): acquire commit ts!
+  txn->commit_ts_ = ++last_commit_ts_;
 
   if (txn->state_ != TransactionState::RUNNING) {
     throw Exception("txn not in running state");
