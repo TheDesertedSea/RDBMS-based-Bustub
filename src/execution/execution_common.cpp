@@ -54,6 +54,7 @@ void TxnMgrDbg(const std::string &info, TransactionManager *txn_mgr, const Table
                TableHeap *table_heap) {
   // always use stderr for printing logs...
   fmt::println(stderr, "debug_hook: {}", info);
+  auto watermark = txn_mgr->GetWatermark();
 
   auto itr = table_heap->MakeIterator();
   while (!itr.IsEnd()) {
@@ -64,37 +65,46 @@ void TxnMgrDbg(const std::string &info, TransactionManager *txn_mgr, const Table
     fmt::print(stderr, "RID={}/{}, ts={} {} tuple={}\n", rid.GetPageId(), rid.GetSlotNum(), ts,
                tuple_meta.is_deleted_ ? "<del>" : "", tuple.ToString(&table_info->schema_));
 
-    /** Initial Values */
-    std::vector<Value> values;
-    for (uint32_t idx = 0; idx < table_info->schema_.GetColumnCount(); idx++) {
-      values.push_back(tuple.GetValue(&table_info->schema_, idx));
-    }
-    auto undo_link = txn_mgr->GetUndoLink(rid);
-    while (undo_link.has_value() && undo_link->IsValid()) {
-      auto undo_log = txn_mgr->GetUndoLog(undo_link.value());
-      auto txn_id = undo_link->prev_txn_ ^ TXN_START_ID;
-
-      /** Generate partial schema */
-      std::vector<Column> modified_columns;
-      std::vector<uint32_t> modified_idxs;
+    if (tuple_meta.ts_ > watermark) {
+      // table heap tuple is not visible to all transactions, we need to check the undo log
+      /** Initial Values */
+      std::vector<Value> values;
       for (uint32_t idx = 0; idx < table_info->schema_.GetColumnCount(); idx++) {
-        if (undo_log.modified_fields_[idx]) {
-          modified_columns.push_back(table_info->schema_.GetColumn(idx));
-          modified_idxs.push_back(idx);
+        values.push_back(tuple.GetValue(&table_info->schema_, idx));
+      }
+      auto undo_link = txn_mgr->GetUndoLink(rid);
+      while (undo_link.has_value() && undo_link->IsValid()) {
+        auto undo_log = txn_mgr->GetUndoLog(undo_link.value());
+        auto txn_id = undo_link->prev_txn_ ^ TXN_START_ID;
+
+        /** Generate partial schema */
+        std::vector<Column> modified_columns;
+        std::vector<uint32_t> modified_idxs;
+        for (uint32_t idx = 0; idx < table_info->schema_.GetColumnCount(); idx++) {
+          if (undo_log.modified_fields_[idx]) {
+            modified_columns.push_back(table_info->schema_.GetColumn(idx));
+            modified_idxs.push_back(idx);
+          }
         }
-      }
-      auto partial_schema = Schema(modified_columns);
+        auto partial_schema = Schema(modified_columns);
 
-      /** Apply undo */
-      for (uint32_t i = 0; i < modified_idxs.size(); i++) {
-        values[modified_idxs[i]] = undo_log.tuple_.GetValue(&partial_schema, i);
-      }
+        /** Apply undo */
+        for (uint32_t i = 0; i < modified_idxs.size(); i++) {
+          values[modified_idxs[i]] = undo_log.tuple_.GetValue(&partial_schema, i);
+        }
 
-      Tuple temp_tuple(values, &table_info->schema_);
-      fmt::print(stderr, "  txn{}@{} {} ts={}\n", txn_id, undo_link->prev_log_idx_,
-                 undo_log.is_deleted_ ? "<del>" : temp_tuple.ToString(&table_info->schema_), undo_log.ts_);
-      undo_link = undo_log.prev_version_;
-    }
+        Tuple temp_tuple(values, &table_info->schema_);
+        fmt::print(stderr, "  txn{}@{} {} ts={}\n", txn_id, undo_link->prev_log_idx_,
+                   undo_log.is_deleted_ ? "<del>" : temp_tuple.ToString(&table_info->schema_), undo_log.ts_);
+
+        if (undo_log.ts_ <= watermark) {
+          // this is the deepest version that is visible to all transactions
+          break;
+        }
+        undo_link = undo_log.prev_version_;
+      }
+    }  // meta.ts_ <= water_mark, table heap tuple is already visible to all transactions, undo log is not needed
+
     ++itr;
   }
 

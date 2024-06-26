@@ -114,6 +114,45 @@ void TransactionManager::Abort(Transaction *txn) {
   running_txns_.RemoveTxn(txn->read_ts_);
 }
 
-void TransactionManager::GarbageCollection() { UNIMPLEMENTED("not implemented"); }
+void TransactionManager::GarbageCollection() {
+  auto watermark = GetWatermark();
+  std::unordered_set<txn_id_t> txns_can_be_accessed;
+
+  for (auto &table_name : catalog_->GetTableNames()) {
+    auto table_info = catalog_->GetTable(table_name);
+    auto itr = table_info->table_->MakeEagerIterator();
+    while (!itr.IsEnd()) {
+      auto rid = itr.GetRID();
+      auto meta = table_info->table_->GetTupleMeta(rid);
+      if (meta.ts_ > watermark) {
+        // table heap tuple is not visible to all transactions, we need to check the undo log
+        auto undo_link = GetUndoLink(rid);
+        while (undo_link.has_value() && undo_link->IsValid()) {
+          txns_can_be_accessed.insert(undo_link->prev_txn_);
+          auto undo_log = GetUndoLog(undo_link.value());
+          if (undo_log.ts_ <= watermark) {
+            // this is the deepest version that is visible to all transactions
+            break;
+          }
+          undo_link = undo_log.prev_version_;
+        }
+      }  // meta.ts_ <= water_mark, table heap tuple is already visible to all transactions, undo log is not needed
+
+      ++itr;
+    }
+  }
+
+  std::vector<txn_id_t> txns_to_remove;
+  for (auto &[txn_id, txn] : txn_map_) {
+    if (txns_can_be_accessed.find(txn_id) == txns_can_be_accessed.end() &&
+        (txn->state_ == TransactionState::COMMITTED || txn->state_ == TransactionState::ABORTED)) {
+      txns_to_remove.push_back(txn_id);
+    }
+  }
+
+  for (auto txn_id : txns_to_remove) {
+    txn_map_.erase(txn_id);
+  }
+}
 
 }  // namespace bustub

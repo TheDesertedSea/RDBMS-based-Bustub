@@ -66,8 +66,8 @@ auto DeleteExecutor::Next([[maybe_unused]] Tuple *tuple, RID *rid) -> bool {
         // first undo log is created by this transaction, reuse
         auto first_undo_log = txn_mgr->GetUndoLog(first_undo_link.value());
         if (!first_undo_log.is_deleted_) {
-          first_undo_log.modified_fields_ = std::vector<bool>(table_info->schema_.GetColumnCount(), true);
           auto new_partial_tuple = ReconstructTuple(&table_info->schema_, t, tuple_meta, {first_undo_log});
+          first_undo_log.modified_fields_ = std::vector<bool>(table_info->schema_.GetColumnCount(), true);
           BUSTUB_ASSERT(new_partial_tuple.has_value(), "ReconstructTuple should return a tuple here");
           first_undo_log.tuple_ = new_partial_tuple.value();
         }
