@@ -12,6 +12,7 @@
 
 #include <memory>
 #include "catalog/schema.h"
+#include "common/macros.h"
 #include "storage/table/tuple.h"
 #include "type/integer_type.h"
 #include "type/type.h"
@@ -39,6 +40,7 @@ auto InsertExecutor::Next([[maybe_unused]] Tuple *tuple, RID *rid) -> bool {
   auto catalog = exec_ctx_->GetCatalog();
   auto table_info = catalog->GetTable(plan_->GetTableOid());
   auto indexes = catalog->GetTableIndexes(table_info->name_);
+  auto txn = exec_ctx_->GetTransaction();
 
   Tuple t;
   RID r;
@@ -46,8 +48,9 @@ auto InsertExecutor::Next([[maybe_unused]] Tuple *tuple, RID *rid) -> bool {
   while (child_executor_->Next(&t, &r)) {
     TupleMeta meta;
     meta.is_deleted_ = false;
-    auto new_rid = table_info->table_->InsertTuple(meta, t, exec_ctx_->GetLockManager(), exec_ctx_->GetTransaction(),
-                                                   plan_->GetTableOid());
+    meta.ts_ = txn->GetTransactionTempTs();
+    auto new_rid = table_info->table_->InsertTuple(meta, t, exec_ctx_->GetLockManager(), txn, plan_->GetTableOid());
+    BUSTUB_ASSERT(new_rid.has_value(), "InsertTuple should return a RID on success");
 
     for (auto &index_info : indexes) {
       auto result = index_info->index_->InsertEntry(
@@ -57,6 +60,8 @@ auto InsertExecutor::Next([[maybe_unused]] Tuple *tuple, RID *rid) -> bool {
         return false;
       }
     }
+
+    txn->AppendWriteSet(plan_->GetTableOid(), new_rid.value());  // add to write set
     count_inserted++;
   }
   *tuple = Tuple{{ValueFactory::GetIntegerValue(count_inserted)}, &GetOutputSchema()};

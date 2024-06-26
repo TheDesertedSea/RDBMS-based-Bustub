@@ -114,4 +114,61 @@ void TxnMgrDbg(const std::string &info, TransactionManager *txn_mgr, const Table
   //   txn3@1 (7, _, _) ts=1
 }
 
+auto GeneratePartialTuple(const Schema &schema, const Tuple &old_tuple, const std::vector<Value> &new_values,
+                          std::vector<bool> &modified_fields) -> Tuple {
+  auto column_count = schema.GetColumnCount();
+  std::vector<Column> modified_columns;
+  std::vector<Value> modified;
+  for (uint32_t i = 0; i != column_count; i++) {
+    auto old_value = old_tuple.GetValue(&schema, i);
+    if (!old_value.CompareExactlyEquals(new_values[i])) {
+      modified_fields[i] = true;
+      modified_columns.push_back(schema.GetColumn(i));
+      modified.emplace_back(old_value);
+    }
+  }
+
+  Schema partial_schema = Schema(modified_columns);
+  return {modified, &partial_schema};
+}
+
+auto MergeParitalTuple(const Schema &schema, const Tuple &orig_tuple, const std::vector<Value> &new_values,
+                       const Tuple &partial_tuple_old, const std::vector<bool> &modified_fields_old,
+                       std::vector<bool> &merged_modified_fields) -> Tuple {
+  // Generate the old partial schema
+  std::vector<Column> partial_columns_old;
+  for (uint32_t i = 0; i != schema.GetColumnCount(); i++) {
+    if (modified_fields_old[i]) {
+      partial_columns_old.push_back(schema.GetColumn(i));
+    }
+  }
+  Schema partial_schema_old = Schema(partial_columns_old);
+
+  // traverse all columns to find out merged columns and values
+  auto column_count = schema.GetColumnCount();
+  std::vector<Column> merged_columns;
+  std::vector<Value> merged_values;
+  uint32_t partial_idx_old = 0;
+  for (uint32_t i = 0; i != column_count; i++) {
+    if (modified_fields_old[i]) {
+      // already in the old partial tuple
+      merged_modified_fields[i] = true;
+      merged_columns.push_back(schema.GetColumn(i));
+      merged_values.push_back(partial_tuple_old.GetValue(&partial_schema_old, partial_idx_old));
+      partial_idx_old++;
+    } else {
+      // not in the old partial tuple, check if it is modified
+      auto orig_value = orig_tuple.GetValue(&schema, i);
+      if (!orig_value.CompareExactlyEquals(new_values[i])) {
+        merged_modified_fields[i] = true;
+        merged_columns.push_back(schema.GetColumn(i));
+        merged_values.push_back(orig_value);
+      }
+    }
+  }
+
+  Schema merged_schema = Schema(merged_columns);
+  return {merged_values, &merged_schema};
+}
+
 }  // namespace bustub
