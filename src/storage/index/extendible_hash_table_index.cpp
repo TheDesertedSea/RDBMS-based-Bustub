@@ -38,10 +38,7 @@ void HASH_TABLE_INDEX_TYPE::ScanKey(const Tuple &key, std::vector<RID> *result, 
   KeyType index_key;
   index_key.SetFromKey(key);
 
-  auto r = container_.GetValue(index_key, result, transaction);
-  if (!result->empty()) {
-    std::cout << "result: " << r << " " << (*result)[0].ToString() << std::endl;
-  }
+  container_.GetValue(index_key, result, transaction);
 }
 template class ExtendibleHashTableIndex<GenericKey<4>, RID, GenericComparator<4>>;
 template class ExtendibleHashTableIndex<GenericKey<8>, RID, GenericComparator<8>>;
