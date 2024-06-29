@@ -12,10 +12,8 @@
 
 #include <algorithm>
 #include <cstdint>
-#include <optional>
 #include <utility>
 
-#include "common/exception.h"
 #include "storage/page/b_plus_tree_page.h"
 #include "storage/page/extendible_htable_bucket_page.h"
 

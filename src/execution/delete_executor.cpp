@@ -98,7 +98,7 @@ auto DeleteExecutor::Next([[maybe_unused]] Tuple *tuple, RID *rid) -> bool {
     table_info->table_->UpdateTupleMeta(tuple_meta, r);
 
     for (auto &index_info : indexes) {
-      // Delete the old index entry then insert the new index entry
+      // Delete the index entry
       index_info->index_->DeleteEntry(
           t.KeyFromTuple(table_info->schema_, index_info->key_schema_, index_info->index_->GetKeyAttrs()), r,
           exec_ctx_->GetTransaction());

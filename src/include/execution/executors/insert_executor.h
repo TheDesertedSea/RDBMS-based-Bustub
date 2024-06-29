@@ -15,6 +15,8 @@
 #include <memory>
 #include <utility>
 
+#include "catalog/catalog.h"
+#include "common/rid.h"
 #include "execution/executor_context.h"
 #include "execution/executors/abstract_executor.h"
 #include "execution/plans/insert_plan.h"
@@ -55,10 +57,17 @@ class InsertExecutor : public AbstractExecutor {
   auto GetOutputSchema() const -> const Schema & override { return plan_->OutputSchema(); };
 
  private:
+  void InsertWithExistingIndex(RID r, const Tuple &t);
+  void InsertWithNewIndex(Tuple &t, RID *new_rid);
+
   /** The insert plan node to be executed*/
   const InsertPlanNode *plan_;
   const std::unique_ptr<AbstractExecutor> child_executor_;
   bool inserted_ = false;
+
+  TableInfo *table_info_;
+  Transaction *txn_;
+  std::vector<IndexInfo *> indexes_;
 };
 
 }  // namespace bustub

@@ -29,6 +29,18 @@ auto GeneratePartialTuple(const Schema &schema, const Tuple &old_tuple, const st
                           std::vector<bool> &modified_fields) -> Tuple;
 
 /**
+ * Generate a partial tuple from the old tuple and new values.
+ *
+ * @param schema the schema of the tuple
+ * @param old_tuple the old tuple
+ * @param new_tuple the new tuple
+ * @param modified_fields [out] the modified fields
+ * @return the partial tuple
+ */
+auto GeneratePartialTuple(const Schema &schema, const Tuple &old_tuple, const Tuple &new_tuple,
+                          std::vector<bool> &modified_fields) -> Tuple;
+
+/**
  * Merge the partial tuple with the old partial tuple.
  *
  * @param schema the schema of the original tuple
@@ -40,6 +52,21 @@ auto GeneratePartialTuple(const Schema &schema, const Tuple &old_tuple, const st
  * @return the merged partial tuple
  */
 auto MergeParitalTuple(const Schema &schema, const Tuple &orig_tuple, const std::vector<Value> &new_values,
+                       const Tuple &partial_tuple_old, const std::vector<bool> &modified_fields_old,
+                       std::vector<bool> &merged_modified_fields) -> Tuple;
+
+/**
+ * Merge the partial tuple with the old partial tuple.
+ *
+ * @param schema the schema of the original tuple
+ * @param orig_tuple the original tuple
+ * @param new_tuple the new tuple
+ * @param partial_tuple_old the old partial tuple
+ * @param modified_fields_old the modified fields of the old partial tuple
+ * @param merged_modified_fields [out] the merged modified fields
+ * @return the merged partial tuple
+ */
+auto MergeParitalTuple(const Schema &schema, const Tuple &orig_tuple, const Tuple &new_tuple,
                        const Tuple &partial_tuple_old, const std::vector<bool> &modified_fields_old,
                        std::vector<bool> &merged_modified_fields) -> Tuple;
 
