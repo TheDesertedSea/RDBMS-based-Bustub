@@ -16,6 +16,7 @@
 #include <utility>
 #include <vector>
 
+#include "concurrency/transaction_manager.h"
 #include "execution/executor_context.h"
 #include "execution/executors/abstract_executor.h"
 #include "execution/plans/update_plan.h"
@@ -57,6 +58,21 @@ class UpdateExecutor : public AbstractExecutor {
   auto GetOutputSchema() const -> const Schema & override { return plan_->OutputSchema(); }
 
  private:
+  void UpdateInPlace(RID r, TupleMeta &m, const Tuple& old_tuple, const Tuple &t,
+                     std::optional<VersionUndoLink> &version_link);
+  void InsertNewTuple(Tuple &t);
+  void DeleteOldTuple(RID r, TupleMeta &m, const Tuple& old_tuple, std::optional<VersionUndoLink> &version_link);
+  void InsertWithExistingIndex(RID r, const Tuple &t);
+  void InsertWithNewIndex(Tuple &t, RID *new_rid);
+  inline void UpdateTuple(const Tuple &t, const RID &r) {
+    TupleMeta m{txn_->GetTransactionTempTs(), false};
+    table_info_->table_->UpdateTupleInPlace(m, t, r);
+  }
+  inline void DeleteTuple(const RID &r) {
+    TupleMeta m{txn_->GetTransactionTempTs(), true};
+    table_info_->table_->UpdateTupleMeta(m, r);
+  }
+
   /** The update plan node to be executed */
   const UpdatePlanNode *plan_;
 
@@ -64,5 +80,9 @@ class UpdateExecutor : public AbstractExecutor {
   std::unique_ptr<AbstractExecutor> child_executor_;
 
   bool updated_{false};
+
+  TableInfo *table_info_;
+  Transaction *txn_;
+  std::vector<IndexInfo *> indexes_;
 };
 }  // namespace bustub

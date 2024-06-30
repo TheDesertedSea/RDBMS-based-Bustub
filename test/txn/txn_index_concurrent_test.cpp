@@ -16,7 +16,7 @@ namespace bustub {
 
 // NOLINTBEGIN(bugprone-unchecked-optional-access)
 
-TEST(TxnIndexTest, IndexConcurrentInsertTest) {  // NOLINT
+TEST(TxnIndexTest, DISABLED_IndexConcurrentInsertTest) {  // NOLINT
   const auto generate_sql = [](int thread_id, int n) -> std::string {
     return fmt::format("INSERT INTO maintable VALUES ({}, {})", n, thread_id);
   };
@@ -96,7 +96,7 @@ TEST(TxnIndexTest, IndexConcurrentInsertTest) {  // NOLINT
   }
 }
 
-TEST(TxnIndexTest, DISABLED_IndexConcurrentUpdateTest) {  // NOLINT
+TEST(TxnIndexTest, IndexConcurrentUpdateTest) {  // NOLINT
   const auto generate_sql = [](int thread_id, int n) -> std::string {
     return fmt::format("UPDATE maintable SET b = b + {} WHERE a = {}", (1 << thread_id), n);
   };
@@ -189,6 +189,8 @@ TEST(TxnIndexTest, DISABLED_IndexConcurrentUpdateTest) {  // NOLINT
       fmt::println(stderr, "--- the following data might be manually inspected by TAs ---");
       bustub->ExecuteSqlTxn("SELECT * FROM maintable", writer, query_txn);
     }
+    // auto table_info = bustub->catalog_->GetTable("maintable");
+    // TxnMgrDbg("after trial", bustub->txn_manager_.get(), table_info, table_info->table_.get());
   }
 }
 

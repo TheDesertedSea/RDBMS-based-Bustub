@@ -88,6 +88,7 @@ void InsertExecutor::InsertWithExistingIndex(const RID r, const Tuple &t) {
     version_link->in_progress_ = false;
     txn_mgr->UpdateVersionLink(r, version_link);
     txn_->SetTainted();
+    std::cout << "Write-write conflict detected in InsertExecutor(InsertWithExistingIndex) 1" << std::endl;
     throw ExecutionException("Write-write conflict detected in InsertExecutor(InsertWithExistingIndex)");
   }
 
@@ -96,6 +97,7 @@ void InsertExecutor::InsertWithExistingIndex(const RID r, const Tuple &t) {
     version_link->in_progress_ = false;
     txn_mgr->UpdateVersionLink(r, version_link);
     txn_->SetTainted();
+    std::cout << "Insert on existing tuple in InsertExecutor(InsertWithExistingIndex) 2" << std::endl;
     throw ExecutionException("Insert on existing tuple in InsertExecutor(InsertWithExistingIndex)");
   }
 
@@ -169,6 +171,7 @@ void InsertExecutor::InsertWithNewIndex(Tuple &t, RID *new_rid) {
         exec_ctx_->GetTransaction());
     if (!result) {
       txn_->SetTainted();
+      std::cout << "InsertWithNewIndex(InsertExecutor): Another transaction has inserted the same key, aborting" << std::endl;
       throw ExecutionException("InsertWithNewIndex: Another transaction has inserted the same key, aborting");
     }
   }

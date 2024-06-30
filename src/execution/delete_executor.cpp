@@ -50,20 +50,22 @@ auto DeleteExecutor::Next([[maybe_unused]] Tuple *tuple, RID *rid) -> bool {
     auto version_link = txn_mgr->GetVersionLink(r);
     LockVersionLink(r, txn_, txn_mgr, &version_link);
 
-    // check write-write conflict
-    TupleMeta tuple_meta = table_info_->table_->GetTupleMeta(r);
-    if (tuple_meta.ts_ > txn_->GetReadTs() && tuple_meta.ts_ != txn_->GetTransactionTempTs()) {
-      version_link->in_progress_ = false;
-      txn_mgr->UpdateVersionLink(r, version_link);
-      txn_->SetTainted();
-      throw ExecutionException("Write-write conflict detected in DeleteExecutor");
-    }
-
+    auto [tuple_meta, old_tuple] = table_info_->table_->GetTuple(r);
     if (tuple_meta.is_deleted_) {
       version_link->in_progress_ = false;
       txn_mgr->UpdateVersionLink(r, version_link);
       // already deleted, skip
       continue;
+    }
+
+    // check write-write conflict
+
+    if (tuple_meta.ts_ > txn_->GetReadTs() && tuple_meta.ts_ != txn_->GetTransactionTempTs()) {
+      version_link->in_progress_ = false;
+      txn_mgr->UpdateVersionLink(r, version_link);
+      txn_->SetTainted();
+      std::cout << "Write-write conflict detected in DeleteExecutor" << std::endl;
+      throw ExecutionException("Write-write conflict detected in DeleteExecutor");
     }
 
     // update undo log
@@ -73,7 +75,7 @@ auto DeleteExecutor::Next([[maybe_unused]] Tuple *tuple, RID *rid) -> bool {
         // first undo log is created by this transaction, reuse
         auto first_undo_log = txn_mgr->GetUndoLog(version_link->prev_);
         if (!first_undo_log.is_deleted_) {
-          auto new_partial_tuple = ReconstructTuple(&table_info_->schema_, t, tuple_meta, {first_undo_log});
+          auto new_partial_tuple = ReconstructTuple(&table_info_->schema_, old_tuple, tuple_meta, {first_undo_log});
           first_undo_log.modified_fields_ = std::vector<bool>(table_info_->schema_.GetColumnCount(), true);
           BUSTUB_ASSERT(new_partial_tuple.has_value(), "ReconstructTuple should return a tuple here");
           first_undo_log.tuple_ = new_partial_tuple.value();
@@ -89,7 +91,7 @@ auto DeleteExecutor::Next([[maybe_unused]] Tuple *tuple, RID *rid) -> bool {
         UndoLog undo_log;
         undo_log.is_deleted_ = false;  // should not be deleted, or it should already be "continued" before
         undo_log.modified_fields_ = std::vector<bool>(table_info_->schema_.GetColumnCount(), true);
-        undo_log.tuple_ = t;
+        undo_log.tuple_ = old_tuple;
         undo_log.ts_ = tuple_meta.ts_;
         undo_log.prev_version_ = version_link->prev_;  // link to the previous version
 
@@ -102,7 +104,7 @@ auto DeleteExecutor::Next([[maybe_unused]] Tuple *tuple, RID *rid) -> bool {
       UndoLog undo_log;
       undo_log.is_deleted_ = false;  // should not be deleted, or it should already be "continued" before
       undo_log.modified_fields_ = std::vector<bool>(table_info_->schema_.GetColumnCount(), true);
-      undo_log.tuple_ = t;
+      undo_log.tuple_ = old_tuple;
       undo_log.ts_ = tuple_meta.ts_;
 
       // delete the tuple

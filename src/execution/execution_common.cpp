@@ -7,6 +7,7 @@
 #include "catalog/schema.h"
 #include "common/config.h"
 #include "common/macros.h"
+#include "concurrency/transaction.h"
 #include "concurrency/transaction_manager.h"
 #include "fmt/core.h"
 #include "storage/table/table_heap.h"
@@ -73,7 +74,9 @@ void TxnMgrDbg(const std::string &info, TransactionManager *txn_mgr, const Table
       for (uint32_t idx = 0; idx < table_info->schema_.GetColumnCount(); idx++) {
         values.push_back(tuple.GetValue(&table_info->schema_, idx));
       }
-      auto undo_link = txn_mgr->GetUndoLink(rid);
+      auto version_link = txn_mgr->GetVersionLink(rid);
+      fmt::print(stderr, "is in progress: {}\n", version_link.has_value() && version_link->in_progress_);
+      auto undo_link = version_link.has_value() ? std::optional<UndoLink>(version_link->prev_) : std::nullopt;
       while (undo_link.has_value() && undo_link->IsValid()) {
         auto undo_log = txn_mgr->GetUndoLog(undo_link.value());
         auto txn_id = undo_link->prev_txn_ ^ TXN_START_ID;
@@ -244,7 +247,8 @@ void LockVersionLink(const RID &rid, Transaction *txn, TransactionManager *txn_m
   if (version_link->has_value()) {
     if ((*version_link)->in_progress_) {
       txn->SetTainted();
-      throw ExecutionException("InsertWithExistingIndex: version link is being updated, aborting transaction");
+      std::cout << "version link is being updated, aborting transaction" << std::endl;
+      throw ExecutionException("version link is being updated, aborting transaction");
     }
     (*version_link)->in_progress_ = true;
     if ((*version_link)->prev_.IsValid()) {
@@ -254,20 +258,23 @@ void LockVersionLink(const RID &rid, Transaction *txn, TransactionManager *txn_m
                 return v.has_value() && v->prev_.prev_txn_ == old_log_head_txn_id;
               })) {
         txn->SetTainted();
-        throw ExecutionException("InsertWithExistingIndex: Write-write conflict detected(InsertWithExistingIndex 1)");
+        std::cout << "Write-write conflict detected(LockVersionLink 1)" << std::endl;
+        throw ExecutionException("Write-write conflict detected(LockVersionLink 1)");
       }
     } else if (!txn_mgr->UpdateVersionLink(rid, (*version_link), [](std::optional<VersionUndoLink> v) {
                  return v.has_value() && !v->prev_.IsValid();
                })) {
       txn->SetTainted();
-      throw ExecutionException("InsertExecutor::Next: Write-write conflict detected(InsertWithExistingIndex 2)");
+      std::cout << "Write-write conflict detected(LockVersionLink 2)" << std::endl;
+      throw ExecutionException("Write-write conflict detected(LockVersionLink 2)");
     }
   } else {
     *version_link = VersionUndoLink{UndoLink{INVALID_TXN_ID, 0}, true};
     if (!txn_mgr->UpdateVersionLink(rid, *version_link,
                                     [](std::optional<VersionUndoLink> v) { return !v.has_value(); })) {
       txn->SetTainted();
-      throw ExecutionException("InsertExecutor::Next: Write-write conflict detected(InsertWithExistingIndex 3)");
+      std::cout << "Write-write conflict detected(LockVersionLink 3)" << std::endl;
+      throw ExecutionException("Write-write conflict detected(LockVersionLink 3)");
     }
   }
 }
