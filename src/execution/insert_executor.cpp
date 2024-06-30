@@ -80,35 +80,7 @@ void InsertExecutor::InsertWithExistingIndex(const RID r, const Tuple &t) {
   // step 1, mark version_link->in_progress_ as true(lock)
   auto txn_mgr = exec_ctx_->GetTransactionManager();
   auto version_link = txn_mgr->GetVersionLink(r);
-  bool has_version_link = false;  // whether the tuple has a version link at this moment
-  if (version_link.has_value()) {
-    if (version_link->in_progress_) {
-      txn_->SetTainted();
-      throw ExecutionException("InsertWithExistingIndex: version link is being updated, aborting transaction");
-    }
-    version_link->in_progress_ = true;
-    if (version_link->prev_.IsValid()) {
-      has_version_link = true;
-      if (!txn_mgr->UpdateVersionLink(
-              r, version_link, [old_log_head_txn_id = version_link->prev_.prev_txn_](std::optional<VersionUndoLink> v) {
-                return v.has_value() && v->prev_.prev_txn_ == old_log_head_txn_id;
-              })) {
-        txn_->SetTainted();
-        throw ExecutionException("InsertWithExistingIndex: Write-write conflict detected(InsertWithExistingIndex 1)");
-      }
-    } else if (!txn_mgr->UpdateVersionLink(r, version_link, [](std::optional<VersionUndoLink> v) {
-                 return v.has_value() && !v->prev_.IsValid();
-               })) {
-      txn_->SetTainted();
-      throw ExecutionException("InsertExecutor::Next: Write-write conflict detected(InsertWithExistingIndex 2)");
-    }
-  } else {
-    version_link = VersionUndoLink{UndoLink{INVALID_TXN_ID, 0}, true};
-    if (!txn_mgr->UpdateVersionLink(r, version_link, [](std::optional<VersionUndoLink> v) { return !v.has_value(); })) {
-      txn_->SetTainted();
-      throw ExecutionException("InsertExecutor::Next: Write-write conflict detected(InsertWithExistingIndex 3)");
-    }
-  }
+  LockVersionLink(r, txn_, txn_mgr, &version_link);
 
   // check write-write conflict
   auto [m, old_tuple] = table_info_->table_->GetTuple(r);
@@ -127,7 +99,7 @@ void InsertExecutor::InsertWithExistingIndex(const RID r, const Tuple &t) {
     throw ExecutionException("Insert on existing tuple in InsertExecutor(InsertWithExistingIndex)");
   }
 
-  if (has_version_link) {
+  if (version_link.has_value() && version_link->prev_.IsValid()) {
     // has undo log
     if (version_link->prev_.prev_txn_ == txn_->GetTransactionId()) {
       // first undo log is created by this transaction, reuse
@@ -141,9 +113,7 @@ void InsertExecutor::InsertWithExistingIndex(const RID r, const Tuple &t) {
       txn_->ModifyUndoLog(version_link->prev_.prev_log_idx_, first_undo_log);
 
       // step 2 create a tuple on the table heap with a transaction temporary timestamp
-      m.is_deleted_ = false;
-      m.ts_ = txn_->GetTransactionTempTs();
-      table_info_->table_->UpdateTupleInPlace(m, t, r);
+      UpdateTuple(t, r);
       version_link->in_progress_ = false;
       txn_mgr->UpdateVersionLink(r, version_link);
     } else {
@@ -152,14 +122,13 @@ void InsertExecutor::InsertWithExistingIndex(const RID r, const Tuple &t) {
       undo_log.is_deleted_ = m.is_deleted_;  // original tuple may be deleted, some transaction may delete it and
                                              // commit between the child executor and this executor
       undo_log.modified_fields_ = std::vector<bool>(table_info_->schema_.GetColumnCount(), false);
-      undo_log.tuple_ = Tuple();  // m.is_deleted_ == true
+      undo_log.tuple_ =
+          m.is_deleted_ ? Tuple() : GeneratePartialTuple(table_info_->schema_, old_tuple, t, undo_log.modified_fields_);
       undo_log.prev_version_ = version_link->prev_;
       undo_log.ts_ = m.ts_;
 
       // step 2 create a tuple on the table heap with a transaction temporary timestamp
-      m.is_deleted_ = false;
-      m.ts_ = txn_->GetTransactionTempTs();
-      table_info_->table_->UpdateTupleInPlace(m, t, r);
+      UpdateTuple(t, r);
       txn_mgr->UpdateVersionLink(r, VersionUndoLink::FromOptionalUndoLink(txn_->AppendUndoLog(undo_log)));
     }
   } else if (m.ts_ != txn_->GetTransactionTempTs()) {
@@ -172,10 +141,12 @@ void InsertExecutor::InsertWithExistingIndex(const RID r, const Tuple &t) {
     undo_log.ts_ = m.ts_;
 
     // step 2 create a tuple on the table heap with a transaction temporary timestamp
-    m.is_deleted_ = false;
-    m.ts_ = txn_->GetTransactionTempTs();
-    table_info_->table_->UpdateTupleInPlace(m, t, r);
+    UpdateTuple(t, r);
     txn_mgr->UpdateVersionLink(r, VersionUndoLink::FromOptionalUndoLink(txn_->AppendUndoLog(undo_log)));
+  } else {
+    UpdateTuple(t, r);
+    version_link->in_progress_ = false;
+    txn_mgr->UpdateVersionLink(r, version_link);
   }
 
   txn_->AppendWriteSet(table_info_->oid_, r);

@@ -59,6 +59,10 @@ class InsertExecutor : public AbstractExecutor {
  private:
   void InsertWithExistingIndex(RID r, const Tuple &t);
   void InsertWithNewIndex(Tuple &t, RID *new_rid);
+  inline void UpdateTuple(const Tuple &t, const RID &r) {
+    TupleMeta m{txn_->GetTransactionTempTs(), false};
+    table_info_->table_->UpdateTupleInPlace(m, t, r);
+  }
 
   /** The insert plan node to be executed*/
   const InsertPlanNode *plan_;

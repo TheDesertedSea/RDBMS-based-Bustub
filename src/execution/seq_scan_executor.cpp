@@ -54,18 +54,19 @@ auto SeqScanExecutor::Next(Tuple *tuple, RID *rid) -> bool {
       std::vector<UndoLog> undo_logs;
       bool has_visible_version = false;  // whether there's a visible version
       while (undo_link.has_value() && undo_link->IsValid()) {
-        // only continue if the first undo link is valid, otherwise there's no previous version
+        // only continue if the undo link is valid, otherwise there's no previous version
         auto undo_log = txn_manager->GetUndoLog(undo_link.value());
-        if (undo_log.ts_ != heap_ts) {
-          // there may be a small amount of time when the table heap contains a tuple with the same timestamp as the
-          // first undo log, they are duplicates. Only add to undo_logs if the timestamps are different.
-          undo_link = undo_log.prev_version_;
-          undo_logs.push_back(undo_log);
-        }
+        undo_link = undo_log.prev_version_;
         if (undo_log.ts_ <= read_ts) {
           // this version can be seen by current transaction
           has_visible_version = !undo_log.is_deleted_;
+          undo_logs.push_back(std::move(undo_log));
           break;
+        }
+        if (undo_log.ts_ != heap_ts) {
+          // there may be a small amount of time when the table heap contains a tuple with the same timestamp as the
+          // first undo log, they are duplicates. Only add to undo_logs if the timestamps are different.
+          undo_logs.push_back(std::move(undo_log));
         }
       }
       if (has_visible_version) {

@@ -16,6 +16,7 @@
 #include <utility>
 #include <vector>
 
+#include "concurrency/transaction.h"
 #include "execution/executor_context.h"
 #include "execution/executors/abstract_executor.h"
 #include "execution/plans/delete_plan.h"
@@ -56,11 +57,20 @@ class DeleteExecutor : public AbstractExecutor {
   auto GetOutputSchema() const -> const Schema & override { return plan_->OutputSchema(); };
 
  private:
+  inline void DeleteTuple(const RID &r) {
+    TupleMeta m{txn_->GetTransactionTempTs(), true};
+    table_info_->table_->UpdateTupleMeta(m, r);
+  }
+
   /** The delete plan node to be executed */
   const DeletePlanNode *plan_;
 
   /** The child executor from which RIDs for deleted tuples are pulled */
   std::unique_ptr<AbstractExecutor> child_executor_;
+
+  Transaction *txn_;
+  TableInfo *table_info_;
+  std::vector<IndexInfo *> indexes_;
 
   bool deleted_;  // Whether the delete has been executed
 };

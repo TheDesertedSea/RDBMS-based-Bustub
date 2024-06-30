@@ -6,6 +6,7 @@
 #include "catalog/catalog.h"
 #include "catalog/schema.h"
 #include "concurrency/transaction.h"
+#include "concurrency/transaction_manager.h"
 #include "storage/table/tuple.h"
 
 namespace bustub {
@@ -69,6 +70,37 @@ auto MergeParitalTuple(const Schema &schema, const Tuple &orig_tuple, const std:
 auto MergeParitalTuple(const Schema &schema, const Tuple &orig_tuple, const Tuple &new_tuple,
                        const Tuple &partial_tuple_old, const std::vector<bool> &modified_fields_old,
                        std::vector<bool> &merged_modified_fields) -> Tuple;
+
+/**
+ * Try to lock the version link's in_progress_ flag.
+ * If failed, set txn taited and throw an exception.
+ *
+ * @param rid the record id
+ * @param txn the transaction
+ * @param txn_mgr the transaction manager
+ * @param version_link [in/out] the version link
+ * @param has_version_link [out] whether a valid version link exists
+ */
+void LockVersionLink(const RID &rid, Transaction *txn, TransactionManager *txn_mgr,
+                     std::optional<VersionUndoLink> *version_link);
+
+/**
+ * Update the tuple and version link.
+ * After this, version link's in_progress_ flag should be set to false.
+ *
+ * @param txn the transaction
+ * @param txn_mgr the transaction manager
+ * @param old_tuple the old tuple
+ * @param meta the old tuple meta
+ * @param rid the record id
+ * @param tuple the new tuple
+ * @param is_delete whether this is a delete operation
+ * @param version_link the version link
+ * @param table_info the table info
+ */
+void UpdateTupleAndVersionLink(Transaction *txn, TransactionManager *txn_mgr, const Tuple &old_tuple, TupleMeta meta,
+                               const RID &rid, const Tuple &tuple, bool is_delete,
+                               std::optional<VersionUndoLink> &version_link, TableInfo *table_info);
 
 // Add new functions as needed... You are likely need to define some more functions.
 //
