@@ -52,8 +52,8 @@ auto IndexScanExecutor::Next(Tuple *tuple, RID *rid) -> bool {
     }
   } else {
     // need to check undo logs
-    auto heap_ts = m.ts_;                                     // the timestamp on table heap
-    auto version_link = txn_manager->GetVersionLink(rid[0]);  // get the first undo link
+    auto heap_ts = m.ts_;                                      // the timestamp on table heap
+    auto version_link = txn_manager->GetVersionLink(rids[0]);  // get the first undo link
     auto undo_link = version_link.has_value() ? std::optional<UndoLink>(version_link->prev_) : std::nullopt;
     std::vector<UndoLog> undo_logs;
     bool has_visible_version = false;  // whether there's a visible version
