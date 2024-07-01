@@ -48,7 +48,7 @@ auto DeleteExecutor::Next([[maybe_unused]] Tuple *tuple, RID *rid) -> bool {
   int count_deleted = 0;
   while (child_executor_->Next(&t, &r)) {
     auto version_link = txn_mgr->GetVersionLink(r);
-    LockVersionLink(r, txn_, txn_mgr, &version_link);
+    CheckAndLockVersionLink(r, txn_, txn_mgr, &version_link, table_info_);
 
     auto [tuple_meta, old_tuple] = table_info_->table_->GetTuple(r);
     if (tuple_meta.is_deleted_) {
@@ -59,14 +59,6 @@ auto DeleteExecutor::Next([[maybe_unused]] Tuple *tuple, RID *rid) -> bool {
     }
 
     // check write-write conflict
-
-    if (tuple_meta.ts_ > txn_->GetReadTs() && tuple_meta.ts_ != txn_->GetTransactionTempTs()) {
-      version_link->in_progress_ = false;
-      txn_mgr->UpdateVersionLink(r, version_link);
-      txn_->SetTainted();
-      std::cout << "Write-write conflict detected in DeleteExecutor" << std::endl;
-      throw ExecutionException("Write-write conflict detected in DeleteExecutor");
-    }
 
     // update undo log
     if (version_link.has_value() && version_link->prev_.IsValid()) {
@@ -95,9 +87,15 @@ auto DeleteExecutor::Next([[maybe_unused]] Tuple *tuple, RID *rid) -> bool {
         undo_log.ts_ = tuple_meta.ts_;
         undo_log.prev_version_ = version_link->prev_;  // link to the previous version
 
-        // delete the tuple
+        // need to update the version link before mark the tuple as deleted on the table heap
+        auto new_version_link = VersionUndoLink::FromOptionalUndoLink(txn_->AppendUndoLog(undo_log));
+        new_version_link->in_progress_ = true;
+        txn_mgr->UpdateVersionLink(r, new_version_link);
+        // delete the tuple on the table heap
         DeleteTuple(r);
-        txn_mgr->UpdateVersionLink(r, VersionUndoLink::FromOptionalUndoLink(txn_->AppendUndoLog(undo_log)));
+        // set the in_progress_ flag to false
+        new_version_link->in_progress_ = false;
+        txn_mgr->UpdateVersionLink(r, new_version_link);
       }
     } else if (tuple_meta.ts_ != txn_->GetTransactionTempTs()) {
       // no undo log and this tuple is not created by this transaction, create a new undo log
@@ -107,10 +105,17 @@ auto DeleteExecutor::Next([[maybe_unused]] Tuple *tuple, RID *rid) -> bool {
       undo_log.tuple_ = old_tuple;
       undo_log.ts_ = tuple_meta.ts_;
 
-      // delete the tuple
+      // need to update the version link before mark the tuple as deleted on the table heap
+      auto new_version_link = VersionUndoLink::FromOptionalUndoLink(txn_->AppendUndoLog(undo_log));
+      new_version_link->in_progress_ = true;
+      txn_mgr->UpdateVersionLink(r, new_version_link);
+      // delete the tuple on the table heap
       DeleteTuple(r);
-      txn_mgr->UpdateVersionLink(r, VersionUndoLink::FromOptionalUndoLink(txn_->AppendUndoLog(undo_log)));
+      // set the in_progress_ flag to false
+      new_version_link->in_progress_ = false;
+      txn_mgr->UpdateVersionLink(r, new_version_link);
     } else {
+      // no version link and this tuple is created by this transaction
       DeleteTuple(r);
       version_link->in_progress_ = false;
       txn_mgr->UpdateVersionLink(r, version_link);

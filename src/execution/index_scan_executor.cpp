@@ -18,9 +18,13 @@ namespace bustub {
 IndexScanExecutor::IndexScanExecutor(ExecutorContext *exec_ctx, const IndexScanPlanNode *plan)
     : AbstractExecutor(exec_ctx), plan_(plan) {}
 
-void IndexScanExecutor::Init() {}
+void IndexScanExecutor::Init() { scan_finished_ = false; }
 
 auto IndexScanExecutor::Next(Tuple *tuple, RID *rid) -> bool {
+  if (scan_finished_) {
+    return false;
+  }
+
   auto index_info = exec_ctx_->GetCatalog()->GetIndex(plan_->GetIndexOid());
   auto index = index_info->index_.get();
   auto txn = exec_ctx_->GetTransaction();
@@ -33,6 +37,7 @@ auto IndexScanExecutor::Next(Tuple *tuple, RID *rid) -> bool {
   index->ScanKey(Tuple({key_value}, index->GetKeySchema()), &rids, exec_ctx_->GetTransaction());
 
   if (rids.empty()) {
+    scan_finished_ = true;
     return false;
   }
 
@@ -42,6 +47,7 @@ auto IndexScanExecutor::Next(Tuple *tuple, RID *rid) -> bool {
     if (!m.is_deleted_) {
       *tuple = t;
       *rid = rids[0];
+      scan_finished_ = true;
       return true;
     }
   } else {
@@ -73,11 +79,13 @@ auto IndexScanExecutor::Next(Tuple *tuple, RID *rid) -> bool {
       if (reconstruct_result.has_value()) {
         *tuple = reconstruct_result.value();
         *rid = rids[0];
+        scan_finished_ = true;
         return true;
       }
     }
   }
 
+  scan_finished_ = true;
   return false;
 }
 }  // namespace bustub

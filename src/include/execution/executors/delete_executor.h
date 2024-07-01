@@ -57,6 +57,7 @@ class DeleteExecutor : public AbstractExecutor {
   auto GetOutputSchema() const -> const Schema & override { return plan_->OutputSchema(); };
 
  private:
+  // Mark a tuple as deleted on the table heap
   inline void DeleteTuple(const RID &r) {
     TupleMeta m{txn_->GetTransactionTempTs(), true};
     table_info_->table_->UpdateTupleMeta(m, r);

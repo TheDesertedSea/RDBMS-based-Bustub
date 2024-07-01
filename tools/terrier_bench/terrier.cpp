@@ -20,6 +20,7 @@
 #include "common/util/string_util.h"
 #include "concurrency/transaction.h"
 #include "concurrency/transaction_manager.h"
+#include "execution/execution_common.h"
 #include "fmt/core.h"
 #include "fmt/std.h"
 
@@ -136,6 +137,7 @@ auto ExtractOneCell(const bustub::StringVectorWriter &writer) -> std::string {
 void Bench1TaskTransfer(const int thread_id, const int terrier_num, const uint64_t duration_ms,
                         const bustub::IsolationLevel iso_lvl, bustub::BustubInstance *bustub,
                         TerrierTotalMetrics &total_metrics) {
+  std::cout << "Bench1TaskTransfer" << std::endl;
   const int max_transfer_amount = 1000;
   std::random_device r;
   std::default_random_engine gen(r());
@@ -161,6 +163,7 @@ void Bench1TaskTransfer(const int thread_id, const int terrier_num, const uint64
     std::string query2 =
         fmt::format("UPDATE terriers SET token = token - {} WHERE terrier = {}", transfer_amount, terrier_b);
     if (!bustub->ExecuteSqlTxn(query1, writer, txn)) {
+      std::cout << "Bench1TaskTransfer query1 failed" << std::endl;
       bustub->txn_manager_->Abort(txn);
       metrics.TxnAborted();
       continue;
@@ -170,6 +173,7 @@ void Bench1TaskTransfer(const int thread_id, const int terrier_num, const uint64
       fmt::print(stderr, "unexpected result when update \"{}\" != 1\n", result);
       exit(1);
     }
+
     if (!bustub->ExecuteSqlTxn(query2, writer, txn)) {
       bustub->txn_manager_->Abort(txn);
       metrics.TxnAborted();
@@ -188,6 +192,7 @@ void Bench1TaskTransfer(const int thread_id, const int terrier_num, const uint64
     metrics.Report();
   }
 
+  std::cout << "Bench1TaskTransfer end" << std::endl;
   total_metrics.ReportTransfer(metrics.aborted_txn_cnt_, metrics.committed_txn_cnt_);
 }
 

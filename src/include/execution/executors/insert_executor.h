@@ -57,8 +57,24 @@ class InsertExecutor : public AbstractExecutor {
   auto GetOutputSchema() const -> const Schema & override { return plan_->OutputSchema(); };
 
  private:
+  /**
+   * Insert a tuple at the given RID, which is pointed by an existing index
+   * This is like an update operation.
+   *
+   * @param r The RID to be inserted at
+   * @param t The tuple to be inserted
+   */
   void InsertWithExistingIndex(RID r, const Tuple &t);
+  /**
+   * Create a new tuple and insert it into the table.
+   * Also create new indexes for the tuple.
+   *
+   * @param t The tuple to be inserted
+   * @param new_rid [out] The RID of the inserted tuple
+   */
   void InsertWithNewIndex(Tuple &t, RID *new_rid);
+
+  // Update tuple on the table heap
   inline void UpdateTuple(const Tuple &t, const RID &r) {
     TupleMeta m{txn_->GetTransactionTempTs(), false};
     table_info_->table_->UpdateTupleInPlace(m, t, r);

@@ -42,7 +42,7 @@ auto GeneratePartialTuple(const Schema &schema, const Tuple &old_tuple, const Tu
                           std::vector<bool> &modified_fields) -> Tuple;
 
 /**
- * Merge the partial tuple with the old partial tuple.
+ * Merge new update info into the old partial tuple.
  *
  * @param schema the schema of the original tuple
  * @param orig_tuple the original tuple
@@ -57,7 +57,7 @@ auto MergeParitalTuple(const Schema &schema, const Tuple &orig_tuple, const std:
                        std::vector<bool> &merged_modified_fields) -> Tuple;
 
 /**
- * Merge the partial tuple with the old partial tuple.
+ * Merge new update info into the old partial tuple.
  *
  * @param schema the schema of the original tuple
  * @param orig_tuple the original tuple
@@ -72,35 +72,19 @@ auto MergeParitalTuple(const Schema &schema, const Tuple &orig_tuple, const Tupl
                        std::vector<bool> &merged_modified_fields) -> Tuple;
 
 /**
- * Try to lock the version link's in_progress_ flag.
- * If failed, set txn taited and throw an exception.
+ * Try to lock the version link's in_progress_ flag to true.
+ * Check if there is a write-write conflict and if the current version link's in_progress_ flag is false.
+ * If there is a write-write conflict or the in_progress_ flag is true, return false.
+ * Otherwise, set the in_progress_ flag to true and return true.
  *
  * @param rid the record id
  * @param txn the transaction
  * @param txn_mgr the transaction manager
  * @param version_link [in/out] the version link
- * @param has_version_link [out] whether a valid version link exists
+ * @param table_info the table info, used to get the metadata to get the ts of this rid on the table heap
  */
-void LockVersionLink(const RID &rid, Transaction *txn, TransactionManager *txn_mgr,
-                     std::optional<VersionUndoLink> *version_link);
-
-/**
- * Update the tuple and version link.
- * After this, version link's in_progress_ flag should be set to false.
- *
- * @param txn the transaction
- * @param txn_mgr the transaction manager
- * @param old_tuple the old tuple
- * @param meta the old tuple meta
- * @param rid the record id
- * @param tuple the new tuple
- * @param is_delete whether this is a delete operation
- * @param version_link the version link
- * @param table_info the table info
- */
-void UpdateTupleAndVersionLink(Transaction *txn, TransactionManager *txn_mgr, const Tuple &old_tuple, TupleMeta meta,
-                               const RID &rid, const Tuple &tuple, bool is_delete,
-                               std::optional<VersionUndoLink> &version_link, TableInfo *table_info);
+void CheckAndLockVersionLink(const RID &rid, Transaction *txn, TransactionManager *txn_mgr,
+                             std::optional<VersionUndoLink> *version_link, TableInfo *table_info);
 
 // Add new functions as needed... You are likely need to define some more functions.
 //

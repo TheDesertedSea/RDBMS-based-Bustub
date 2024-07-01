@@ -77,27 +77,17 @@ auto InsertExecutor::Next([[maybe_unused]] Tuple *tuple, RID *rid) -> bool {
 }
 
 void InsertExecutor::InsertWithExistingIndex(const RID r, const Tuple &t) {
-  // step 1, mark version_link->in_progress_ as true(lock)
   auto txn_mgr = exec_ctx_->GetTransactionManager();
   auto version_link = txn_mgr->GetVersionLink(r);
-  LockVersionLink(r, txn_, txn_mgr, &version_link);
+  CheckAndLockVersionLink(r, txn_, txn_mgr, &version_link, table_info_);
 
-  // check write-write conflict
   auto [m, old_tuple] = table_info_->table_->GetTuple(r);
-  if (m.ts_ > txn_->GetReadTs() && m.ts_ != txn_->GetTransactionTempTs()) {
-    version_link->in_progress_ = false;
-    txn_mgr->UpdateVersionLink(r, version_link);
-    txn_->SetTainted();
-    std::cout << "Write-write conflict detected in InsertExecutor(InsertWithExistingIndex) 1" << std::endl;
-    throw ExecutionException("Write-write conflict detected in InsertExecutor(InsertWithExistingIndex)");
-  }
 
   if (!m.is_deleted_) {
-    // insert on existing tuple
+    // insert on existing tuple, abort
     version_link->in_progress_ = false;
     txn_mgr->UpdateVersionLink(r, version_link);
     txn_->SetTainted();
-    std::cout << "Insert on existing tuple in InsertExecutor(InsertWithExistingIndex) 2" << std::endl;
     throw ExecutionException("Insert on existing tuple in InsertExecutor(InsertWithExistingIndex)");
   }
 
@@ -114,7 +104,7 @@ void InsertExecutor::InsertWithExistingIndex(const RID r, const Tuple &t) {
       }
       txn_->ModifyUndoLog(version_link->prev_.prev_log_idx_, first_undo_log);
 
-      // step 2 create a tuple on the table heap with a transaction temporary timestamp
+      // create a tuple on the table heap with a transaction temporary timestamp
       UpdateTuple(t, r);
       version_link->in_progress_ = false;
       txn_mgr->UpdateVersionLink(r, version_link);
@@ -129,9 +119,15 @@ void InsertExecutor::InsertWithExistingIndex(const RID r, const Tuple &t) {
       undo_log.prev_version_ = version_link->prev_;
       undo_log.ts_ = m.ts_;
 
-      // step 2 create a tuple on the table heap with a transaction temporary timestamp
+      // need to update the version link before updating the tuple on the table heap
+      auto new_version_link = VersionUndoLink::FromOptionalUndoLink(txn_->AppendUndoLog(undo_log));
+      new_version_link->in_progress_ = true;
+      txn_mgr->UpdateVersionLink(r, new_version_link);
+      // update the tuple on the table heap
       UpdateTuple(t, r);
-      txn_mgr->UpdateVersionLink(r, VersionUndoLink::FromOptionalUndoLink(txn_->AppendUndoLog(undo_log)));
+      // set the in_progress_ flag to false
+      new_version_link->in_progress_ = false;
+      txn_mgr->UpdateVersionLink(r, new_version_link);
     }
   } else if (m.ts_ != txn_->GetTransactionTempTs()) {
     // no undo log and this tuple is not created by this transaction, create a new undo log
@@ -142,10 +138,17 @@ void InsertExecutor::InsertWithExistingIndex(const RID r, const Tuple &t) {
         m.is_deleted_ ? Tuple() : GeneratePartialTuple(table_info_->schema_, old_tuple, t, undo_log.modified_fields_);
     undo_log.ts_ = m.ts_;
 
-    // step 2 create a tuple on the table heap with a transaction temporary timestamp
+    // need to update the version link before updating the tuple on the table heap
+    auto new_version_link = VersionUndoLink::FromOptionalUndoLink(txn_->AppendUndoLog(undo_log));
+    new_version_link->in_progress_ = true;
+    txn_mgr->UpdateVersionLink(r, new_version_link);
+    // update the tuple on the table heap
     UpdateTuple(t, r);
-    txn_mgr->UpdateVersionLink(r, VersionUndoLink::FromOptionalUndoLink(txn_->AppendUndoLog(undo_log)));
+    // set the in_progress_ flag to false
+    new_version_link->in_progress_ = false;
+    txn_mgr->UpdateVersionLink(r, new_version_link);
   } else {
+    // no version link and this tuple is created by this transaction
     UpdateTuple(t, r);
     version_link->in_progress_ = false;
     txn_mgr->UpdateVersionLink(r, version_link);
@@ -155,7 +158,7 @@ void InsertExecutor::InsertWithExistingIndex(const RID r, const Tuple &t) {
 }
 
 void InsertExecutor::InsertWithNewIndex(Tuple &t, RID *new_rid) {
-  // step 2 create a tuple on the table heap with a transaction temporary timestamp
+  // create a tuple on the table heap with a transaction temporary timestamp
   TupleMeta meta;
   meta.is_deleted_ = false;
   meta.ts_ = txn_->GetTransactionTempTs();
@@ -164,14 +167,14 @@ void InsertExecutor::InsertWithNewIndex(Tuple &t, RID *new_rid) {
   *new_rid = result.value();
   txn_->AppendWriteSet(table_info_->oid_, *new_rid);
 
-  // step 3 insert the tuple into the index
+  // insert the tuple into the index
   for (auto &index_info : indexes_) {
     auto result = index_info->index_->InsertEntry(
         t.KeyFromTuple(table_info_->schema_, index_info->key_schema_, index_info->index_->GetKeyAttrs()), *new_rid,
         exec_ctx_->GetTransaction());
     if (!result) {
+      // Another concurrent transaction is also inserting the same tuple, abort (We only has primary key index)
       txn_->SetTainted();
-      std::cout << "InsertWithNewIndex(InsertExecutor): Another transaction has inserted the same key, aborting" << std::endl;
       throw ExecutionException("InsertWithNewIndex: Another transaction has inserted the same key, aborting");
     }
   }

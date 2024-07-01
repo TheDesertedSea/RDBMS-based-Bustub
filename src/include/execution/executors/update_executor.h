@@ -58,16 +58,57 @@ class UpdateExecutor : public AbstractExecutor {
   auto GetOutputSchema() const -> const Schema & override { return plan_->OutputSchema(); }
 
  private:
-  void UpdateInPlace(RID r, TupleMeta &m, const Tuple& old_tuple, const Tuple &t,
+  /**
+   * Update the tuple in place(at the same RID)
+   *
+   * @param r the RID of the tuple
+   * @param m the tuple meta
+   * @param old_tuple the old tuple
+   * @param t the new tuple
+   * @param version_link the version link
+   */
+  void UpdateInPlace(RID r, TupleMeta &m, const Tuple &old_tuple, const Tuple &t,
                      std::optional<VersionUndoLink> &version_link);
+  /**
+   * Insert a new tuple into the table
+   * This is for updated tuple that has changed primary key
+   *
+   * @param t the tuple to be inserted
+   */
   void InsertNewTuple(Tuple &t);
-  void DeleteOldTuple(RID r, TupleMeta &m, const Tuple& old_tuple, std::optional<VersionUndoLink> &version_link);
+  /**
+   * Delete the old tuple from the table
+   *
+   * @param r the RID of the tuple
+   * @param m the tuple meta
+   * @param old_tuple the old tuple
+   * @param version_link the version link
+   */
+  void DeleteOldTuple(RID r, TupleMeta &m, const Tuple &old_tuple, std::optional<VersionUndoLink> &version_link);
+  /**
+   * Insert a tuple at the given RID, which is pointed by an existing index
+   * This is like an update operation.
+   *
+   * @param r The RID to be inserted at
+   * @param t The tuple to be inserted
+   */
   void InsertWithExistingIndex(RID r, const Tuple &t);
+  /**
+   * Create a new tuple and insert it into the table.
+   * Also create new indexes for the tuple.
+   *
+   * @param t The tuple to be inserted
+   * @param new_rid [out] The RID of the inserted tuple
+   */
   void InsertWithNewIndex(Tuple &t, RID *new_rid);
+
+  // Update tuple on the table heap
   inline void UpdateTuple(const Tuple &t, const RID &r) {
     TupleMeta m{txn_->GetTransactionTempTs(), false};
     table_info_->table_->UpdateTupleInPlace(m, t, r);
   }
+
+  // Mark a tuple as deleted on the table heap
   inline void DeleteTuple(const RID &r) {
     TupleMeta m{txn_->GetTransactionTempTs(), true};
     table_info_->table_->UpdateTupleMeta(m, r);

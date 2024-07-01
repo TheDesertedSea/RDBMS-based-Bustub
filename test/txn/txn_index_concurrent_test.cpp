@@ -16,7 +16,7 @@ namespace bustub {
 
 // NOLINTBEGIN(bugprone-unchecked-optional-access)
 
-TEST(TxnIndexTest, DISABLED_IndexConcurrentInsertTest) {  // NOLINT
+TEST(TxnIndexTest, IndexConcurrentInsertTest) {  // NOLINT
   const auto generate_sql = [](int thread_id, int n) -> std::string {
     return fmt::format("INSERT INTO maintable VALUES ({}, {})", n, thread_id);
   };
@@ -181,6 +181,8 @@ TEST(TxnIndexTest, IndexConcurrentUpdateTest) {  // NOLINT
       }
       expected_rows.push_back({i, winner});
     }
+    // auto table_info = bustub->catalog_->GetTable("maintable");
+    // TxnMgrDbg("after trial", bustub->txn_manager_.get(), table_info, table_info->table_.get());
     auto query_txn = BeginTxn(*bustub, "query_txn");
     WithTxn(query_txn, QueryShowResult(*bustub, _var, _txn, "SELECT * FROM maintable", expected_rows));
     TableHeapEntryNoMoreThan(*bustub, bustub->catalog_->GetTable("maintable"), number_cnt);
@@ -189,8 +191,6 @@ TEST(TxnIndexTest, IndexConcurrentUpdateTest) {  // NOLINT
       fmt::println(stderr, "--- the following data might be manually inspected by TAs ---");
       bustub->ExecuteSqlTxn("SELECT * FROM maintable", writer, query_txn);
     }
-    // auto table_info = bustub->catalog_->GetTable("maintable");
-    // TxnMgrDbg("after trial", bustub->txn_manager_.get(), table_info, table_info->table_.get());
   }
 }
 
