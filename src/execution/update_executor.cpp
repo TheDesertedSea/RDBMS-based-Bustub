@@ -43,7 +43,6 @@ auto UpdateExecutor::Next([[maybe_unused]] Tuple *tuple, RID *rid) -> bool {
     return false;
   }
 
-  auto txn_mgr = exec_ctx_->GetTransactionManager();
   // find out primary index
   IndexInfo *primary_index = nullptr;
   for (auto index_info : indexes_) {
@@ -84,13 +83,8 @@ auto UpdateExecutor::Next([[maybe_unused]] Tuple *tuple, RID *rid) -> bool {
   // delete old tuple first to get empty slot, we cannot move a tuple to a existing tuple. If that happens after
   // deleting all old tuples, it's a write-write conflict.
   for (auto &[new_tuple, r] : tuples_to_delete_insert) {
-    auto version_link = txn_mgr->GetVersionLink(r);
-    CheckAndLockVersionLink(r, txn_, txn_mgr, &version_link, table_info_);
-
-    auto [meta, old_tuple] = table_info_->table_->GetTuple(r);
-
-    TupleMeta m = table_info_->table_->GetTupleMeta(r);
-    DeleteOldTuple(r, m, old_tuple, version_link);
+    // DeleteOldTuple(r);
+    DeleteOldTupleUsingLock(r);
   }
 
   int count_updated = 0;
@@ -102,11 +96,8 @@ auto UpdateExecutor::Next([[maybe_unused]] Tuple *tuple, RID *rid) -> bool {
 
   // update each tuple that needs to be updated
   for (auto &[new_tuple, r] : tuples_to_update) {
-    auto version_link = txn_mgr->GetVersionLink(r);
-    CheckAndLockVersionLink(r, txn_, txn_mgr, &version_link, table_info_);
-
-    auto [meta, old_tuple] = table_info_->table_->GetTuple(r);
-    UpdateInPlace(r, meta, old_tuple, new_tuple, version_link);
+    // UpdateInPlace(r, new_tuple);
+    UpdateInPlaceUsingLock(r, new_tuple);
     count_updated++;
   }
 
@@ -115,9 +106,12 @@ auto UpdateExecutor::Next([[maybe_unused]] Tuple *tuple, RID *rid) -> bool {
   return true;
 }
 
-void UpdateExecutor::UpdateInPlace(RID r, TupleMeta &m, const Tuple &old_tuple, const Tuple &t,
-                                   std::optional<VersionUndoLink> &version_link) {
+void UpdateExecutor::UpdateInPlace(RID r, const Tuple &t) {
   auto txn_mgr = exec_ctx_->GetTransactionManager();
+  auto version_link = txn_mgr->GetVersionLink(r);
+  CheckAndLockVersionLink(r, txn_, txn_mgr, &version_link, table_info_);
+
+  auto [m, old_tuple] = table_info_->table_->GetTuple(r);
 
   if (version_link.has_value() && version_link->prev_.IsValid()) {
     // has undo log
@@ -185,9 +179,78 @@ void UpdateExecutor::UpdateInPlace(RID r, TupleMeta &m, const Tuple &old_tuple, 
   txn_->AppendWriteSet(table_info_->oid_, r);
 }
 
-void UpdateExecutor::DeleteOldTuple(RID r, TupleMeta &m, const Tuple &old_tuple,
-                                    std::optional<VersionUndoLink> &version_link) {
+void UpdateExecutor::UpdateInPlaceUsingLock(RID r, const Tuple &t) {
+  auto page_guard = table_info_->table_->AcquireTablePageWriteLock(r);
+
   auto txn_mgr = exec_ctx_->GetTransactionManager();
+  auto version_link = txn_mgr->GetVersionLink(r);
+
+  auto [m, old_tuple] = table_info_->table_->GetTupleWithLockAcquired(r, page_guard.As<TablePage>());
+
+  // check write-write conflict
+  if (m.ts_ > txn_->GetReadTs() && m.ts_ != txn_->GetTransactionTempTs()) {
+    txn_->SetTainted();
+    throw ExecutionException("UpdateExecutor(UpdateInPlaceUsingLock): write-write conflict");
+    // just setTainted and throw exception, Abort will be called in the upper level(bustub instance)
+  }
+
+  if (version_link.has_value() && version_link->prev_.IsValid()) {
+    // has undo log
+    if (version_link->prev_.prev_txn_ == txn_->GetTransactionId()) {
+      // first undo log is created by this transaction, reuse
+      auto first_undo_log = txn_mgr->GetUndoLog(version_link->prev_);
+      if (!first_undo_log.is_deleted_) {
+        std::vector<bool> merged_modified_fields(table_info_->schema_.GetColumnCount(), false);
+        first_undo_log.tuple_ = MergeParitalTuple(table_info_->schema_, old_tuple, t, first_undo_log.tuple_,
+                                                  first_undo_log.modified_fields_, merged_modified_fields);
+        first_undo_log.modified_fields_ = merged_modified_fields;
+      }
+      txn_->ModifyUndoLog(version_link->prev_.prev_log_idx_, first_undo_log);
+      // create a tuple on the table heap with a transaction temporary timestamp
+      UpdateTupleWithLocking(t, r, page_guard.AsMut<TablePage>());
+    } else {
+      // first undo log is not created by this transaction, create a new undo log
+      auto undo_log = UndoLog();
+      undo_log.is_deleted_ = m.is_deleted_;  // original tuple may be deleted, some transaction may delete it and
+                                             // commit between the child executor and this executor
+      undo_log.modified_fields_ = std::vector<bool>(table_info_->schema_.GetColumnCount(), false);
+      undo_log.tuple_ =
+          m.is_deleted_ ? Tuple() : GeneratePartialTuple(table_info_->schema_, old_tuple, t, undo_log.modified_fields_);
+      undo_log.prev_version_ = version_link->prev_;
+      undo_log.ts_ = m.ts_;
+
+      // need to update the version link before updating the tuple on the table heap
+      txn_mgr->UpdateVersionLink(r, VersionUndoLink::FromOptionalUndoLink(txn_->AppendUndoLog(undo_log)));
+      // update the tuple on the table heap
+      UpdateTupleWithLocking(t, r, page_guard.AsMut<TablePage>());
+    }
+  } else if (m.ts_ != txn_->GetTransactionTempTs()) {
+    // no undo log and this tuple is not created by this transaction, create a new undo log
+    auto undo_log = UndoLog();
+    undo_log.is_deleted_ = m.is_deleted_;  // original tuple may be deleted
+    undo_log.modified_fields_ = std::vector<bool>(table_info_->schema_.GetColumnCount(), false);
+    undo_log.tuple_ =
+        m.is_deleted_ ? Tuple() : GeneratePartialTuple(table_info_->schema_, old_tuple, t, undo_log.modified_fields_);
+    undo_log.ts_ = m.ts_;
+
+    // need to update the version link before updating the tuple on the table heap
+    txn_mgr->UpdateVersionLink(r, VersionUndoLink::FromOptionalUndoLink(txn_->AppendUndoLog(undo_log)));
+    // update the tuple on the table heap
+    UpdateTupleWithLocking(t, r, page_guard.AsMut<TablePage>());
+  } else {
+    // no version link and this tuple is created by this transaction
+    UpdateTupleWithLocking(t, r, page_guard.AsMut<TablePage>());
+  }
+
+  txn_->AppendWriteSet(table_info_->oid_, r);
+}
+
+void UpdateExecutor::DeleteOldTuple(RID r) {
+  auto txn_mgr = exec_ctx_->GetTransactionManager();
+  auto version_link = txn_mgr->GetVersionLink(r);
+  CheckAndLockVersionLink(r, txn_, txn_mgr, &version_link, table_info_);
+
+  auto [m, old_tuple] = table_info_->table_->GetTuple(r);
 
   // update undo log
   if (version_link.has_value() && version_link->prev_.IsValid()) {
@@ -253,6 +316,71 @@ void UpdateExecutor::DeleteOldTuple(RID r, TupleMeta &m, const Tuple &old_tuple,
   txn_->AppendWriteSet(plan_->GetTableOid(), r);  // append to write set
 }
 
+void UpdateExecutor::DeleteOldTupleUsingLock(RID r) {
+  auto page_guard = table_info_->table_->AcquireTablePageWriteLock(r);
+
+  auto txn_mgr = exec_ctx_->GetTransactionManager();
+  auto version_link = txn_mgr->GetVersionLink(r);
+
+  auto [m, old_tuple] = table_info_->table_->GetTupleWithLockAcquired(r, page_guard.As<TablePage>());
+
+  // check write-write conflict
+  if (m.ts_ > txn_->GetReadTs() && m.ts_ != txn_->GetTransactionTempTs()) {
+    txn_->SetTainted();
+    throw ExecutionException("UpdateExecutor(DeleteOldTupleUsingLock): write-write conflict");
+    // just setTainted and throw exception, Abort will be called in the upper level(bustub instance)
+  }
+
+  // update undo log
+  if (version_link.has_value() && version_link->prev_.IsValid()) {
+    // has undo log
+    if (version_link->prev_.prev_txn_ == txn_->GetTransactionId()) {
+      // first undo log is created by this transaction, reuse
+      auto first_undo_log = txn_mgr->GetUndoLog(version_link->prev_);
+      if (!first_undo_log.is_deleted_) {
+        auto new_partial_tuple = ReconstructTuple(&table_info_->schema_, old_tuple, m, {first_undo_log});
+        first_undo_log.modified_fields_ = std::vector<bool>(table_info_->schema_.GetColumnCount(), true);
+        BUSTUB_ASSERT(new_partial_tuple.has_value(), "ReconstructTuple should return a tuple here");
+        first_undo_log.tuple_ = new_partial_tuple.value();
+      }
+      txn_->ModifyUndoLog(version_link->prev_.prev_log_idx_, first_undo_log);
+
+      // delete the tuple
+      DeleteTupleWithLocking(r, old_tuple, page_guard.AsMut<TablePage>());
+    } else {
+      // first undo log is not created by this transaction, create a new undo log
+      UndoLog undo_log;
+      undo_log.is_deleted_ = false;  // should not be deleted, or it should already be "continued" before
+      undo_log.modified_fields_ = std::vector<bool>(table_info_->schema_.GetColumnCount(), true);
+      undo_log.tuple_ = old_tuple;
+      undo_log.ts_ = m.ts_;
+      undo_log.prev_version_ = version_link->prev_;  // link to the previous version
+
+      // need to update the version link before mark the tuple as deleted on the table heap
+      txn_mgr->UpdateVersionLink(r, VersionUndoLink::FromOptionalUndoLink(txn_->AppendUndoLog(undo_log)));
+      // delete the tuple on the table heap
+      DeleteTupleWithLocking(r, old_tuple, page_guard.AsMut<TablePage>());
+    }
+  } else if (m.ts_ != txn_->GetTransactionTempTs()) {
+    // no undo log and this tuple is not created by this transaction, create a new undo log
+    UndoLog undo_log;
+    undo_log.is_deleted_ = false;  // should not be deleted, or it should already be "continued" before
+    undo_log.modified_fields_ = std::vector<bool>(table_info_->schema_.GetColumnCount(), true);
+    undo_log.tuple_ = old_tuple;
+    undo_log.ts_ = m.ts_;
+
+    // need to update the version link before mark the tuple as deleted on the table heap
+    txn_mgr->UpdateVersionLink(r, VersionUndoLink::FromOptionalUndoLink(txn_->AppendUndoLog(undo_log)));
+    // delete the tuple on the table heap
+    DeleteTupleWithLocking(r, old_tuple, page_guard.AsMut<TablePage>());
+  } else {
+    // no version link and this tuple is created by this transaction
+    DeleteTupleWithLocking(r, old_tuple, page_guard.AsMut<TablePage>());
+  }
+
+  txn_->AppendWriteSet(plan_->GetTableOid(), r);  // append to write set
+}
+
 void UpdateExecutor::InsertNewTuple(Tuple &t) {
   auto has_index = false;
   for (auto &index_info : indexes_) {
@@ -262,7 +390,8 @@ void UpdateExecutor::InsertNewTuple(Tuple &t) {
         txn_);
     if (!result.empty()) {
       // need to delete the old tuple and insert the new tuple
-      InsertWithExistingIndex(result[0], t);
+      // InsertWithExistingIndex(result[0], t);
+      InsertWithExistingIndexUsingLock(result[0], t);
       has_index = true;
       break;
     }
@@ -286,7 +415,7 @@ void UpdateExecutor::InsertWithExistingIndex(const RID r, const Tuple &t) {
     version_link->in_progress_ = false;
     txn_mgr->UpdateVersionLink(r, version_link);
     txn_->SetTainted();
-    throw ExecutionException("InsertWithExistingIndex: Write-write conflict, aborting");
+    throw ExecutionException("Insert on existing tuple in UpdateExecutor(InsertWithExistingIndexUsingLock)");
   }
 
   if (version_link.has_value() && version_link->prev_.IsValid()) {
@@ -355,6 +484,79 @@ void UpdateExecutor::InsertWithExistingIndex(const RID r, const Tuple &t) {
   txn_->AppendWriteSet(table_info_->oid_, r);
 }
 
+void UpdateExecutor::InsertWithExistingIndexUsingLock(const RID r, const Tuple &t) {
+  auto page_guard = table_info_->table_->AcquireTablePageWriteLock(r);
+
+  auto txn_mgr = exec_ctx_->GetTransactionManager();
+
+  auto [m, old_tuple] = table_info_->table_->GetTupleWithLockAcquired(r, page_guard.As<TablePage>());
+
+  // check write-write conflict
+  if (m.ts_ > txn_->GetReadTs() && m.ts_ != txn_->GetTransactionTempTs()) {
+    txn_->SetTainted();
+    throw ExecutionException("UpdateExecutor(InsertWithExistingIndexUsingLock): write-write conflict");
+    // just setTainted and throw exception, Abort will be called in the upper level(bustub instance)
+  }
+
+  if (!m.is_deleted_) {
+    // this is write-write conflict, we cannot update a tuple that should not be updated
+    txn_->SetTainted();
+    throw ExecutionException("Insert on existing tuple in UpdateExecutor(InsertWithExistingIndexUsingLock)");
+    // just setTainted and throw exception, Abort will be called in the upper level(bustub instance)
+  }
+
+  auto version_link = txn_mgr->GetVersionLink(r);
+  if (version_link.has_value() && version_link->prev_.IsValid()) {
+    // has undo log
+    if (version_link->prev_.prev_txn_ == txn_->GetTransactionId()) {
+      // first undo log is created by this transaction, reuse
+      auto first_undo_log = txn_mgr->GetUndoLog(version_link->prev_);
+      if (!first_undo_log.is_deleted_) {
+        std::vector<bool> merged_modified_fields(table_info_->schema_.GetColumnCount(), false);
+        first_undo_log.tuple_ = MergeParitalTuple(table_info_->schema_, old_tuple, t, first_undo_log.tuple_,
+                                                  first_undo_log.modified_fields_, merged_modified_fields);
+        first_undo_log.modified_fields_ = merged_modified_fields;
+      }
+      txn_->ModifyUndoLog(version_link->prev_.prev_log_idx_, first_undo_log);
+      // create a tuple on the table heap with a transaction temporary timestamp
+      UpdateTupleWithLocking(t, r, page_guard.AsMut<TablePage>());
+    } else {
+      // first undo log is not created by this transaction, create a new undo log
+      auto undo_log = UndoLog();
+      undo_log.is_deleted_ = m.is_deleted_;  // original tuple may be deleted, some transaction may delete it and
+                                             // commit between the child executor and this executor
+      undo_log.modified_fields_ = std::vector<bool>(table_info_->schema_.GetColumnCount(), false);
+      undo_log.tuple_ =
+          m.is_deleted_ ? Tuple() : GeneratePartialTuple(table_info_->schema_, old_tuple, t, undo_log.modified_fields_);
+      undo_log.prev_version_ = version_link->prev_;
+      undo_log.ts_ = m.ts_;
+
+      // need to update the version link before updating the tuple on the table heap
+      txn_mgr->UpdateVersionLink(r, VersionUndoLink::FromOptionalUndoLink(txn_->AppendUndoLog(undo_log)));
+      // update the tuple on the table heap
+      UpdateTupleWithLocking(t, r, page_guard.AsMut<TablePage>());
+    }
+  } else if (m.ts_ != txn_->GetTransactionTempTs()) {
+    // no undo log and this tuple is not created by this transaction, create a new undo log
+    auto undo_log = UndoLog();
+    undo_log.is_deleted_ = m.is_deleted_;  // original tuple may be deleted
+    undo_log.modified_fields_ = std::vector<bool>(table_info_->schema_.GetColumnCount(), false);
+    undo_log.tuple_ =
+        m.is_deleted_ ? Tuple() : GeneratePartialTuple(table_info_->schema_, old_tuple, t, undo_log.modified_fields_);
+    undo_log.ts_ = m.ts_;
+
+    // need to update the version link before updating the tuple on the table heap
+    txn_mgr->UpdateVersionLink(r, VersionUndoLink::FromOptionalUndoLink(txn_->AppendUndoLog(undo_log)));
+    // update the tuple on the table heap
+    UpdateTupleWithLocking(t, r, page_guard.AsMut<TablePage>());
+  } else {
+    // no version link and this tuple is created by this transaction
+    UpdateTupleWithLocking(t, r, page_guard.AsMut<TablePage>());
+  }
+
+  txn_->AppendWriteSet(table_info_->oid_, r);
+}
+
 void UpdateExecutor::InsertWithNewIndex(Tuple &t, RID *new_rid) {
   // create a tuple on the table heap with a transaction temporary timestamp
   TupleMeta meta;
@@ -374,6 +576,7 @@ void UpdateExecutor::InsertWithNewIndex(Tuple &t, RID *new_rid) {
       // Another concurrent transaction is also inserting the same tuple, abort (We only has primary key index)
       txn_->SetTainted();
       throw ExecutionException("InsertWithNewIndex: Another transaction has inserted the same key, aborting");
+      // just setTainted and throw exception, Abort will be called in the upper level(bustub instance)
     }
   }
 }

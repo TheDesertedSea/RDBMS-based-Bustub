@@ -65,6 +65,9 @@ class InsertExecutor : public AbstractExecutor {
    * @param t The tuple to be inserted
    */
   void InsertWithExistingIndex(RID r, const Tuple &t);
+
+  void InsertWithExistingIndexUsingLock(RID r, const Tuple &t);
+
   /**
    * Create a new tuple and insert it into the table.
    * Also create new indexes for the tuple.
@@ -78,6 +81,11 @@ class InsertExecutor : public AbstractExecutor {
   inline void UpdateTuple(const Tuple &t, const RID &r) {
     TupleMeta m{txn_->GetTransactionTempTs(), false};
     table_info_->table_->UpdateTupleInPlace(m, t, r);
+  }
+
+  inline void UpdateTupleWithLocking(const Tuple &t, const RID &r, TablePage *page) {
+    TupleMeta m{txn_->GetTransactionTempTs(), false};
+    table_info_->table_->UpdateTupleInPlaceWithLockAcquired(m, t, r, page);
   }
 
   /** The insert plan node to be executed*/

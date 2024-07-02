@@ -41,7 +41,9 @@ auto IndexScanExecutor::Next(Tuple *tuple, RID *rid) -> bool {
     return false;
   }
 
-  auto [m, t] = exec_ctx_->GetCatalog()->GetTable(plan_->table_oid_)->table_->GetTuple(rids[0]);
+  auto table_info = exec_ctx_->GetCatalog()->GetTable(plan_->table_oid_);
+  auto page_guard = table_info->table_->AcquireTablePageReadLock(rids[0]);
+  auto [m, t] = table_info->table_->GetTupleWithLockAcquired(rids[0], page_guard.As<TablePage>());
   if ((m.ts_ <= read_ts) || (m.ts_ == txn->GetTransactionTempTs())) {
     // can be seen by current transaction
     if (!m.is_deleted_) {

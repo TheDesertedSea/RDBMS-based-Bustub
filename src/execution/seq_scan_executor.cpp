@@ -30,11 +30,14 @@ auto SeqScanExecutor::Next(Tuple *tuple, RID *rid) -> bool {
   auto predicate = plan_->filter_predicate_;
   auto txn = exec_ctx_->GetTransaction();
   auto txn_manager = exec_ctx_->GetTransactionManager();
+  auto table_info = exec_ctx_->GetCatalog()->GetTable(plan_->GetTableOid());
   auto read_ts = txn->GetReadTs();
 
   while (!table_iter_ptr_->IsEnd()) {
-    auto [next_meta, next_tuple] = table_iter_ptr_->GetTuple();
     auto next_rid = table_iter_ptr_->GetRID();
+    auto page_guard = table_info->table_->AcquireTablePageReadLock(next_rid);
+    auto [next_meta, next_tuple] = table_info->table_->GetTupleWithLockAcquired(next_rid, page_guard.As<TablePage>());
+
     ++(*table_iter_ptr_);
 
     if ((next_meta.ts_ <= read_ts) || (next_meta.ts_ == txn->GetTransactionTempTs())) {

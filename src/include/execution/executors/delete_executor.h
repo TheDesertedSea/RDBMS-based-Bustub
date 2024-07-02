@@ -63,6 +63,14 @@ class DeleteExecutor : public AbstractExecutor {
     table_info_->table_->UpdateTupleMeta(m, r);
   }
 
+  inline void DeleteTupleWithLocking(const RID &r, const Tuple &t, TablePage *page) {
+    TupleMeta m{txn_->GetTransactionTempTs(), true};
+    table_info_->table_->UpdateTupleInPlaceWithLockAcquired(m, t, r, page);
+  }
+
+  void TryDelete(const RID &r);
+  void TryDeleteUsingLock(const RID &r);
+
   /** The delete plan node to be executed */
   const DeletePlanNode *plan_;
 

@@ -60,8 +60,9 @@ void TxnMgrDbg(const std::string &info, TransactionManager *txn_mgr, const Table
 
   auto itr = table_heap->MakeIterator();
   while (!itr.IsEnd()) {
-    auto [tuple_meta, tuple] = itr.GetTuple();
     auto rid = itr.GetRID();
+    auto page_guard = table_info->table_->AcquireTablePageReadLock(rid);
+    auto [tuple_meta, tuple] = table_info->table_->GetTupleWithLockAcquired(rid, page_guard.As<TablePage>());
     auto ts = (tuple_meta.ts_ & TXN_START_ID) != 0 ? "txn" + std::to_string(tuple_meta.ts_ ^ TXN_START_ID)
                                                    : std::to_string(tuple_meta.ts_);
     fmt::print(stderr, "RID={}/{}, ts={} {} tuple={}\n", rid.GetPageId(), rid.GetSlotNum(), ts,

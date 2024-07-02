@@ -74,7 +74,8 @@ auto TransactionManager::Commit(Transaction *txn) -> bool {
     auto table_info = catalog_->GetTable(write_set.first);
 
     for (auto &rid : write_set.second) {
-      auto prev_meta = table_info->table_->GetTupleMeta(rid);
+      auto page_guard = table_info->table_->AcquireTablePageWriteLock(rid);
+      auto [prev_meta, prev_tuple] = table_info->table_->GetTupleWithLockAcquired(rid, page_guard.As<TablePage>());
       if (prev_meta.is_deleted_) {
         auto first_undo_link = GetUndoLink(rid);
         if (!first_undo_link.has_value() || !first_undo_link->IsValid()) {
@@ -86,7 +87,7 @@ auto TransactionManager::Commit(Transaction *txn) -> bool {
       } else {
         prev_meta.ts_ = commit_ts;
       }
-      table_info->table_->UpdateTupleMeta(prev_meta, rid);
+      table_info->table_->UpdateTupleInPlaceWithLockAcquired(prev_meta, prev_tuple, rid, page_guard.AsMut<TablePage>());
     }
   }
 
@@ -108,6 +109,36 @@ void TransactionManager::Abort(Transaction *txn) {
   }
 
   // TODO(fall2023): Implement the abort logic!
+  for (auto &[table_oid, rid_set] : txn->GetWriteSets()) {
+    auto table_info = catalog_->GetTable(table_oid);
+    for (auto &rid : rid_set) {
+      auto page_guard = table_info->table_->AcquireTablePageWriteLock(rid);
+      auto first_undo_link = GetUndoLink(rid);
+      if (first_undo_link.has_value() && first_undo_link->IsValid()) {
+        auto first_undo_log = GetUndoLog(first_undo_link.value());
+        if (first_undo_log.is_deleted_) {
+          const auto &[m, t] = table_info->table_->GetTupleWithLockAcquired(rid, page_guard.As<TablePage>());
+          TupleMeta new_meta{first_undo_log.ts_, true};
+          table_info->table_->UpdateTupleInPlaceWithLockAcquired(new_meta, t, rid, page_guard.AsMut<TablePage>());
+        } else {
+          const auto &[m, t] = table_info->table_->GetTupleWithLockAcquired(rid, page_guard.As<TablePage>());
+          auto prev_tuple = ReconstructTuple(&table_info->schema_, t, m, {first_undo_log});
+          BUSTUB_ASSERT(prev_tuple.has_value(),
+                        "in this case, the tuple should be reconstructed successfully since it is not deleted");
+          TupleMeta prev_meta{first_undo_log.ts_, first_undo_log.is_deleted_};
+          table_info->table_->UpdateTupleInPlaceWithLockAcquired(prev_meta, prev_tuple.value(), rid,
+                                                                 page_guard.AsMut<TablePage>());
+        }
+        auto new_undo_link = first_undo_log.prev_version_;
+        UpdateVersionLink(rid, VersionUndoLink{new_undo_link});
+      } else {
+        // this tuple is created by this transaction, so aborting means deleting it
+        const auto &[m, t] = table_info->table_->GetTupleWithLockAcquired(rid, page_guard.As<TablePage>());
+        TupleMeta new_meta{0, true};
+        table_info->table_->UpdateTupleInPlaceWithLockAcquired(new_meta, t, rid, page_guard.AsMut<TablePage>());
+      }
+    }
+  }
 
   std::unique_lock<std::shared_mutex> lck(txn_map_mutex_);
   txn->state_ = TransactionState::ABORTED;

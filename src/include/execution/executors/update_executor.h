@@ -67,8 +67,10 @@ class UpdateExecutor : public AbstractExecutor {
    * @param t the new tuple
    * @param version_link the version link
    */
-  void UpdateInPlace(RID r, TupleMeta &m, const Tuple &old_tuple, const Tuple &t,
-                     std::optional<VersionUndoLink> &version_link);
+  void UpdateInPlace(RID r, const Tuple &t);
+
+  void UpdateInPlaceUsingLock(RID r, const Tuple &t);
+
   /**
    * Insert a new tuple into the table
    * This is for updated tuple that has changed primary key
@@ -84,7 +86,10 @@ class UpdateExecutor : public AbstractExecutor {
    * @param old_tuple the old tuple
    * @param version_link the version link
    */
-  void DeleteOldTuple(RID r, TupleMeta &m, const Tuple &old_tuple, std::optional<VersionUndoLink> &version_link);
+  void DeleteOldTuple(RID r);
+
+  void DeleteOldTupleUsingLock(RID r);
+
   /**
    * Insert a tuple at the given RID, which is pointed by an existing index
    * This is like an update operation.
@@ -93,6 +98,9 @@ class UpdateExecutor : public AbstractExecutor {
    * @param t The tuple to be inserted
    */
   void InsertWithExistingIndex(RID r, const Tuple &t);
+
+  void InsertWithExistingIndexUsingLock(RID r, const Tuple &t);
+
   /**
    * Create a new tuple and insert it into the table.
    * Also create new indexes for the tuple.
@@ -108,10 +116,20 @@ class UpdateExecutor : public AbstractExecutor {
     table_info_->table_->UpdateTupleInPlace(m, t, r);
   }
 
+  inline void UpdateTupleWithLocking(const Tuple &t, const RID &r, TablePage *page) {
+    TupleMeta m{txn_->GetTransactionTempTs(), false};
+    table_info_->table_->UpdateTupleInPlaceWithLockAcquired(m, t, r, page);
+  }
+
   // Mark a tuple as deleted on the table heap
   inline void DeleteTuple(const RID &r) {
     TupleMeta m{txn_->GetTransactionTempTs(), true};
     table_info_->table_->UpdateTupleMeta(m, r);
+  }
+
+  inline void DeleteTupleWithLocking(const RID &r, const Tuple &t, TablePage *page) {
+    TupleMeta m{txn_->GetTransactionTempTs(), true};
+    table_info_->table_->UpdateTupleInPlaceWithLockAcquired(m, t, r, page);
   }
 
   /** The update plan node to be executed */
