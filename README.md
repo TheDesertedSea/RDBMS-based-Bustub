@@ -1,5 +1,5 @@
 # 关系型数据库管理系统
-在关系型数据库管理系统BusTub(https://github.com/cmu-db/bustub)的基础上进行部分模块实现。
+在关系型数据库管理系统BusTub(https://github.com/cmu-db/bustub) 的基础上进行部分模块实现。
 主要工作：
 •	实现缓冲池管理器：实现LRU-K作为缓冲页替换策略; 实现缓冲页的创建、加载、删除、pin/unpin以及刷新
 •	使用Extendible Hashing实现哈希索引功能
